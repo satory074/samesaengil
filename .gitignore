@@ -1,0 +1,17 @@
+# build output
+dist/
+.astro/
+
+# deps
+node_modules/
+
+# env
+.env
+.env.local
+
+# misc
+.DS_Store
+*.log
+
+# 注意: public/data/** と src/data/** は「生成データ兼フォールバック」として
+# コミットする（todayai と同方針）。ignore しないこと。

@@ -1,0 +1,74 @@
+name: Update data and deploy to Pages
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # 毎週月曜 03:00 UTC（誕生日は不変なので頻度は低めでOK）
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 生成データ（public/data）をコミットする
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 型チェック＋スモークテスト（壊れたデータ・ロジックを早期検出）
+      - run: npm run typecheck
+      - run: npm run test
+
+      # データ再生成は schedule / 手動のときだけ（push 時はスキップ＝コミットループ防止）
+      - name: Aggregate
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run aggregate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 任意（無ければ英語descのまま）
+
+      # 差分があれば生成データをコミット
+      - name: Commit data
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "data-bot"
+          git config user.email "actions@github.com"
+          git add public/data src/data/state.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: refresh birthday data"
+            git push
+          else
+            echo "no data changes"
+          fi
+
+      - name: Build
+        run: npm run build
+        env:
+          GH_USER: ${{ github.repository_owner }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

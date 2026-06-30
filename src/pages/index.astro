@@ -1,0 +1,49 @@
+---
+import Layout from "@/components/Layout.astro";
+
+const currentYear = new Date().getFullYear();
+const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => currentYear - i);
+const months = Array.from({ length: 12 }, (_, i) => i + 1);
+const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+const defaultYear = 2000;
+---
+
+<Layout>
+  <main id="app">
+    <form class="bday-form" id="bday-form" autocomplete="off">
+      <label class="label" for="in-year">あなたの生年月日は？🎈</label>
+      <div class="row">
+        <div class="field">
+          <span>年</span>
+          <select id="in-year" aria-label="年">
+            {years.map((y) => <option value={y} selected={y === defaultYear}>{y}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <span>月</span>
+          <select id="in-month" aria-label="月">
+            {months.map((m) => <option value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <span>日</span>
+          <select id="in-day" aria-label="日">
+            {days.map((d) => <option value={d}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+      <div class="go-row">
+        <button class="btn" type="submit" data-action="diagnose">🎉 調べる</button>
+      </div>
+    </form>
+
+    <div id="result" aria-live="polite"></div>
+    <noscript>このサイトの利用には JavaScript が必要です。</noscript>
+  </main>
+
+  <script>
+    import { boot } from "../app/main";
+    boot(document.getElementById("app")!);
+  </script>
+</Layout>
