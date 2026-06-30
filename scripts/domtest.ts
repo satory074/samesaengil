@@ -64,7 +64,8 @@ function setupDom(url: string): JSDOM {
   g.HTMLElement = dom.window.HTMLElement;
   g.location = dom.window.location;
   g.history = dom.window.history;
-  g.navigator = dom.window.navigator;
+  // navigator は Node 21+ では globalThis に読み取り専用で存在するため代入しない
+  // （main.ts は navigator.clipboard を optional chaining で参照するだけで、テスト対象外）。
   // fetch をスタブ（どの URL でも SAMPLE を返す）
   g.fetch = async () => ({ ok: true, json: async () => SAMPLE }) as unknown as Response;
   return dom;
