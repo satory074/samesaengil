@@ -10,9 +10,9 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
-import { fetchEntities, type Enriched } from "./sources/wikidataEntities";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { fetchPageMeta, type PageMeta } from "./sources/jawikiPageMeta";
+import { fetchPageviews, last12Months } from "./sources/jawikiPageviews";
 import { mapLimit } from "./lib/util";
 import charactersSeed from "../src/data/characters.json";
 
@@ -21,9 +21,12 @@ const DAYS_DIR = path.join(ROOT, "public", "data", "days");
 const STATE_PATH = path.join(ROOT, "src", "data", "state.json");
 
 interface State {
-  entities: Record<string, Enriched>; // Q-ID -> 知名度(fame)/日本語ラベル等
-  pages: Record<string, PageMeta>; // jawiki title -> {qid, photo}（負キャッシュは {}）
+  pages: Record<string, PageMeta>; // jawiki title -> {qid, photo, title(正規化後)}（負キャッシュは {}）
+  views: Record<string, number>; // 正規化後タイトル -> 日本語版Wikipedia の年間閲覧数（人気指標）
 }
+
+// 閲覧数の集計期間（実行時に直近12か月を確定）。
+const PV_WINDOW = last12Months(new Date());
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -76,7 +79,7 @@ function isYearLike(name: string): boolean {
   return /^(紀元前)?\d{1,4}年?$/.test(n) || /^AD\s*\d{1,4}$/i.test(n) || /^\d{1,4}\s*(BC|BCE|CE)$/i.test(n);
 }
 
-/** fame 降順 → 写真あり → 生年新しい順（現代の有名人を上へ）。 */
+/** 閲覧数(fame) 降順 → 写真あり → 生年新しい順（人気＝よく見られている人を上へ）。 */
 function rankPeople(people: Person[]): void {
   people.sort((a, b) => {
     if (b.fame !== a.fame) return b.fame - a.fame;
@@ -85,66 +88,66 @@ function rankPeople(people: Person[]): void {
   });
 }
 
-/** 日本語版「誕生日」1 行 → Person（＋dedup 用 Q-ID）。 */
-function personFromJa(b: JaRawBirth, state: State): { person: Person; qid?: string } {
+/** 日本語版「誕生日」1 行 → Person（＋dedup 用の正規化タイトル）。fame は ja Wikipedia の年間閲覧数。 */
+function personFromJa(b: JaRawBirth, state: State): { person: Person; canon: string } {
   const meta = state.pages[b.title] ?? {};
-  const e = (meta.qid && state.entities[meta.qid]) || { fame: 0, jaKnown: true };
+  const canon = meta.title ?? b.title; // リダイレクト解決後の実タイトル
   return {
-    qid: meta.qid,
+    canon,
     person: {
       name: b.name,
       nameEn: "",
       year: b.year ?? 0,
-      desc: b.descJa || e.descJa || "",
+      desc: b.descJa,
       photo: meta.photo ?? "",
       url: `https://ja.wikipedia.org/wiki/${encodeURIComponent(b.title)}`,
       jaKnown: true,
-      fame: e.fame,
+      fame: state.views[canon] ?? 0, // 年間閲覧数＝日本での人気指標
     },
   };
 }
 
-/** ja タイトル群を {qid,photo} に解決（state.pages にキャッシュ、負キャッシュ込み）。 */
+/** ja タイトル群を {qid,photo,正規化タイトル} に解決（state.pages にキャッシュ、負キャッシュ込み）。 */
 async function ensurePages(titles: string[], state: State): Promise<void> {
-  const need = [...new Set(titles.filter(Boolean))].filter((t) => !(t in state.pages));
+  const need = [...new Set(titles.filter(Boolean))].filter((t) => {
+    const m = state.pages[t];
+    if (m === undefined) return true; // 未取得
+    if (m.title) return false; // 正規化タイトルあり＝最新
+    return Boolean(m.qid || m.photo); // 旧キャッシュ（正規化タイトル欠落）は再取得。{} は負キャッシュで据置
+  });
   if (need.length === 0) return;
   const fetched = await fetchPageMeta(need);
   for (const t of need) state.pages[t] = fetched.get(t) ?? {}; // 無ければ {} で負キャッシュ
 }
 
-/** 解決済み state を前提に、Q-ID 群の未キャッシュ分だけ fame 補完。 */
-async function ensureEntities(qids: string[], state: State): Promise<void> {
-  const missing = [...new Set(qids.filter(Boolean))].filter((q) => !(q in state.entities));
-  if (missing.length > 0) {
-    const fetched = await fetchEntities(missing);
-    for (const [q, e] of fetched) state.entities[q] = e;
-  }
+/** 正規化タイトル群の未キャッシュ分だけ閲覧数を取得（state.views にキャッシュ）。 */
+async function ensurePageviews(titles: string[], state: State): Promise<void> {
+  const need = [...new Set(titles.filter(Boolean))].filter((t) => !(t in state.views));
+  if (need.length === 0) return;
+  const fetched = await fetchPageviews(need, PV_WINDOW.start, PV_WINDOW.end);
+  for (const t of need) state.views[t] = fetched.get(t) ?? 0;
 }
 
 /**
- * 日本語版Wikipedia「誕生日」節から人物一覧＋動物一覧を構築（英語版ソースは使わない）。
- * 名前・肩書きは日本語リスト由来、写真は ja Wikipedia の pageimages、並び替え指標(fame)のみ Wikidata。
+ * 日本語版Wikipedia「誕生日」節から人物一覧＋動物一覧を構築（人物リストは日本語版のみ）。
+ * 名前・肩書きは日本語リスト由来、写真は ja pageimages、並び替えは ja Wikipedia の閲覧数(=人気)。
  */
 async function buildPeopleAndAnimals(
   jaBirths: JaRawBirth[],
   jaAnimals: JaRawBirth[],
   state: State,
 ): Promise<{ people: Person[]; animals: Person[] }> {
-  // 1) ja タイトルを {qid,photo} に解決（キャッシュ）。
-  await ensurePages([...jaBirths, ...jaAnimals].map((b) => b.title), state);
+  const all = [...jaBirths, ...jaAnimals];
+  // 1) ja タイトルを {photo, 正規化タイトル} に解決（キャッシュ）。
+  await ensurePages(all.map((b) => b.title), state);
+  // 2) 正規化タイトルの閲覧数を取得（人気指標・キャッシュ）。
+  await ensurePageviews(all.map((b) => state.pages[b.title]?.title ?? b.title), state);
 
-  // 2) ja の Q-ID を fame 補完（並び替え用・キャッシュ）。
-  const jaQids = [...jaBirths, ...jaAnimals]
-    .map((b) => state.pages[b.title]?.qid)
-    .filter((q): q is string => Boolean(q));
-  await ensureEntities(jaQids, state);
-
-  // 3) 人物を構築。同一人物の重複は Q-ID（無ければ name:year）で一意化。
+  // 3) 人物を構築。正規化タイトルで一意化。
   const byKey = new Map<string, Person>();
   for (const b of jaBirths) {
-    const { person, qid } = personFromJa(b, state);
-    const key = qid ? `q:${qid}` : `n:${person.name}:${person.year}`;
-    if (!byKey.has(key)) byKey.set(key, person);
+    const { person, canon } = personFromJa(b, state);
+    if (!byKey.has(canon)) byKey.set(canon, person);
   }
   const people = [...byKey.values()].filter((p) => !isYearLike(p.name));
   rankPeople(people);
@@ -157,9 +160,14 @@ async function buildPeopleAndAnimals(
 }
 
 async function run(): Promise<void> {
-  const state = readJson<State>(STATE_PATH, { entities: {}, pages: {} });
-  state.entities ??= {};
+  const state = readJson<State>(STATE_PATH, { pages: {}, views: {} });
   state.pages ??= {};
+  state.views ??= {};
+  // 旧スキーマの未使用キャッシュ（Wikidata entities 等）を捨てて state.json を軽く保つ。
+  const legacy = state as unknown as Record<string, unknown>;
+  delete legacy.entities;
+  delete legacy.translations;
+  delete legacy.enrichVersion;
 
   const charMap = buildCharacterMap();
   const days = selectDays();

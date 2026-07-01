@@ -114,7 +114,6 @@ function submit(dom: JSDOM, root: Element): void {
   assert(pcards.length === 2, `有名人カード2件（実際: ${pcards.length}）`);
   assert(!!result.querySelector('.pcard[href*="wikipedia"]'), "Wikipedia リンク付きカード");
   assert(!!result.querySelector(".pcard .photo"), "写真ありカードの img");
-  assert(!!result.querySelector(".ja-flag"), "「日本でも有名」バッジ");
   // 写真なし(2人目)はイニシャル data-initials を持つ
   const thumbs = [...result.querySelectorAll(".thumb")];
   assert(thumbs.some((t) => (t as HTMLElement).dataset.initials === "SP"), "イニシャルSP（Some Person）");

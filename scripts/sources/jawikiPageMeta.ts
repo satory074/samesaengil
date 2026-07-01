@@ -6,6 +6,8 @@ import { chunk, fetchJson, mapLimit } from "../lib/util";
 export interface PageMeta {
   qid?: string;
   photo?: string;
+  /** リダイレクト/正規化後の実記事タイトル（pageviews API の精度に必要）。 */
+  title?: string;
 }
 
 interface QueryResponse {
@@ -54,6 +56,7 @@ async function fetchBatch(titles: string[]): Promise<Map<string, PageMeta>> {
       byTitle.set(p.title, {
         qid: p.pageprops?.wikibase_item ?? prev.qid,
         photo: p.thumbnail?.source ?? prev.photo,
+        title: p.title, // 正規化後タイトル
       });
     }
     cont = data.continue;

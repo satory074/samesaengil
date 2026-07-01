@@ -93,7 +93,7 @@ export function peopleMoreHtml(people: Person[]): string {
   return people.slice(PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
 }
 
-function personCard(p: Person, opts?: { hideFlag?: boolean }): string {
+function personCard(p: Person): string {
   const ini = esc(initials(p));
   const thumb = p.photo
     ? `<div class="thumb" data-initials="${ini}"><img class="photo" src="${esc(p.photo)}" alt="${esc(
@@ -101,10 +101,9 @@ function personCard(p: Person, opts?: { hideFlag?: boolean }): string {
       )}" loading="lazy" decoding="async" onerror="this.remove()" /></div>`
     : `<div class="thumb" data-initials="${ini}"></div>`;
   const meta = p.year > 0 ? `${p.year}年生まれ` : "生年非公表";
-  const flag = !opts?.hideFlag && p.jaKnown ? `<span class="ja-flag">日本でも有名</span>` : "";
   const inner = `${thumb}<div class="body"><div class="name">${esc(p.name)}</div><div class="meta">${esc(
     meta,
-  )}${p.desc ? ` ・ ${esc(p.desc)}` : ""}</div>${flag}</div>`;
+  )}${p.desc ? ` ・ ${esc(p.desc)}` : ""}</div></div>`;
   return p.url
     ? `<a class="pcard" href="${esc(p.url)}" target="_blank" rel="noopener">${inner}</a>`
     : `<div class="pcard">${inner}</div>`;
@@ -113,7 +112,7 @@ function personCard(p: Person, opts?: { hideFlag?: boolean }): string {
 /* ---------- 動物・名馬 ---------- */
 export function animalsHtml(animals: Person[]): string {
   if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはセクションごと非表示
-  const cards = animals.map((a) => personCard(a, { hideFlag: true })).join("");
+  const cards = animals.map((a) => personCard(a)).join("");
   return section("🐎", "同じ誕生日の動物・名馬", `<div class="people-grid">${cards}</div>`, animals.length);
 }
 

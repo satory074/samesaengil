@@ -15,6 +15,8 @@ interface FetchOpts {
   retries?: number;
   /** 追加ヘッダ。 */
   headers?: Record<string, string>;
+  /** false でグローバル同時実行ゲートを通さない（別ホストで上限が緩い pageviews API 用）。 */
+  gate?: boolean;
 }
 
 // --- グローバルなリクエスト調停（Wikimedia の 429 対策）---
@@ -50,7 +52,8 @@ function releaseSlot(): void {
 }
 
 async function fetchWithTimeout(url: string, opts: FetchOpts): Promise<Response> {
-  await acquireSlot();
+  const gated = opts.gate !== false;
+  if (gated) await acquireSlot();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeout ?? 20000);
   try {
@@ -60,7 +63,14 @@ async function fetchWithTimeout(url: string, opts: FetchOpts): Promise<Response>
     });
   } finally {
     clearTimeout(t);
-    releaseSlot();
+    if (gated) releaseSlot();
+  }
+}
+
+/** HTTP エラー。status を持たせてリトライ要否の判定に使う。 */
+export class HttpError extends Error {
+  constructor(public readonly status: number, url: string) {
+    super(`HTTP ${status} for ${url}`);
   }
 }
 
@@ -71,48 +81,51 @@ function backoff429(res: Response, attempt: number): number {
   return base + Math.floor(Math.random() * 400); // ジッタ
 }
 
-/** JSON を取得。429/失敗時はリトライ（指数バックオフ＋Retry-After）。最終的に失敗したら throw。 */
+/** !ok なレスポンスを処理: 429=バックオフ継続, 4xx=即失敗, 5xx=リトライ。継続すべきなら true。 */
+async function handleNotOk(res: Response, url: string, attempt: number, retries: number): Promise<boolean> {
+  if (res.status === 429) {
+    if (attempt < retries) {
+      await sleep(backoff429(res, attempt));
+      return true; // リトライ
+    }
+  }
+  throw new HttpError(res.status, url); // 429(上限到達)・4xx・5xx はここで throw（catch 側で 4xx は即失敗）
+}
+
+/** JSON を取得。429/5xx/ネットワークはリトライ、4xx(404 等)は即失敗。 */
 export async function fetchJson<T = unknown>(url: string, opts: FetchOpts = {}): Promise<T> {
   const retries = opts.retries ?? 4;
   let lastErr: unknown;
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetchWithTimeout(url, { ...opts, headers: { Accept: "application/json", ...opts.headers } });
-      if (res.status === 429) {
-        if (i < retries) {
-          await sleep(backoff429(res, i));
-          continue;
-        }
-        throw new Error(`HTTP 429 for ${url}`);
+      if (!res.ok) {
+        if (await handleNotOk(res, url, i, retries)) continue;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
       return (await res.json()) as T;
     } catch (e) {
       lastErr = e;
+      if (e instanceof HttpError && e.status < 500 && e.status !== 429) throw e; // 4xx はリトライ無意味
       if (i < retries) await sleep(800 * (i + 1));
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-/** テキストを取得（HTML スクレイプ用）。 */
+/** テキストを取得（HTML スクレイプ用）。挙動は fetchJson と同じ。 */
 export async function fetchText(url: string, opts: FetchOpts = {}): Promise<string> {
   const retries = opts.retries ?? 4;
   let lastErr: unknown;
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetchWithTimeout(url, opts);
-      if (res.status === 429) {
-        if (i < retries) {
-          await sleep(backoff429(res, i));
-          continue;
-        }
-        throw new Error(`HTTP 429 for ${url}`);
+      if (!res.ok) {
+        if (await handleNotOk(res, url, i, retries)) continue;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
       return await res.text();
     } catch (e) {
       lastErr = e;
+      if (e instanceof HttpError && e.status < 500 && e.status !== 429) throw e;
       if (i < retries) await sleep(800 * (i + 1));
     }
   }
