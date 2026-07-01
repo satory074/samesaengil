@@ -1,5 +1,5 @@
 // 366日ぶんの「誕生日データ」を生成して public/data/days/MM-DD.json に書き出す。
-// ソース: 英語版Wikipedia births + Wikidata(wbgetentities) + 日本語版Wikipedia「M月D日」+ 静的キャラJSON。
+// ソース: 日本語版Wikipedia「M月D日」の誕生日節（人物リスト＋顔写真）+ Wikidata(wbgetentities, 並び替え用の知名度のみ) + 静的キャラJSON。
 // 設計: ソース毎 try/catch、失敗時は前回ファイルへフォールバック（1ソース/1日が落ちても全体を壊さない）。
 //
 // 実行:
@@ -10,24 +10,19 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
-import { fetchBirths, type RawPerson } from "./sources/wikiBirths";
 import { fetchEntities, type Enriched } from "./sources/wikidataEntities";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { fetchPageMeta, type PageMeta } from "./sources/jawikiPageMeta";
-import { translateToJa } from "./sources/translate";
 import { mapLimit } from "./lib/util";
 import charactersSeed from "../src/data/characters.json";
 
 const ROOT = process.cwd();
 const DAYS_DIR = path.join(ROOT, "public", "data", "days");
 const STATE_PATH = path.join(ROOT, "src", "data", "state.json");
-const ENRICH_VERSION = "1"; // 翻訳ロジックを変えたら上げる → 旧キャッシュ破棄
 
 interface State {
-  entities: Record<string, Enriched>;
-  translations: Record<string, string>; // descEn -> descJa
+  entities: Record<string, Enriched>; // Q-ID -> 知名度(fame)/日本語ラベル等
   pages: Record<string, PageMeta>; // jawiki title -> {qid, photo}（負キャッシュは {}）
-  enrichVersion: string;
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -75,18 +70,7 @@ function selectDays(): { month: number; day: number }[] {
   return allDays().filter(({ month, day }) => wanted.has(`${pad(month)}-${pad(day)}`));
 }
 
-/** 英語 description のうち日本語化が必要なものを翻訳キャッシュに溜める。 */
-async function ensureTranslations(descs: string[], state: State): Promise<void> {
-  const need = [...new Set(descs)].filter((d) => d && !(d in state.translations));
-  if (need.length === 0) return;
-  const translated = await translateToJa(need);
-  need.forEach((d, i) => {
-    const ja = translated[i];
-    if (ja) state.translations[d] = ja;
-  });
-}
-
-/** 年・年代など「人物でない」エントリ名を除外（英語 births の pages[0] が年記事のことがある）。 */
+/** 年・年代など「人物でない」エントリ名を除外（保険）。 */
 function isYearLike(name: string): boolean {
   const n = name.trim();
   return /^(紀元前)?\d{1,4}年?$/.test(n) || /^AD\s*\d{1,4}$/i.test(n) || /^\d{1,4}\s*(BC|BCE|CE)$/i.test(n);
@@ -120,24 +104,6 @@ function personFromJa(b: JaRawBirth, state: State): { person: Person; qid?: stri
   };
 }
 
-/** 英語版 births 1 件 → Person（既存ロジック）。 */
-function personFromEn(r: RawPerson, state: State): { person: Person; qid: string } {
-  const e = state.entities[r.qid] ?? { fame: 0, jaKnown: false };
-  return {
-    qid: r.qid,
-    person: {
-      name: e.nameJa || r.nameEn,
-      nameEn: r.nameEn,
-      year: r.year,
-      desc: e.descJa || state.translations[r.descEn] || r.descEn,
-      photo: r.photo,
-      url: r.url,
-      jaKnown: e.jaKnown,
-      fame: e.fame,
-    },
-  };
-}
-
 /** ja タイトル群を {qid,photo} に解決（state.pages にキャッシュ、負キャッシュ込み）。 */
 async function ensurePages(titles: string[], state: State): Promise<void> {
   const need = [...new Set(titles.filter(Boolean))].filter((t) => !(t in state.pages));
@@ -156,11 +122,10 @@ async function ensureEntities(qids: string[], state: State): Promise<void> {
 }
 
 /**
- * 英語版 births と 日本語版「誕生日」をマージした人物一覧＋動物一覧を構築。
- * 日本語側を基準に名前・肩書きを優先し、写真は存在する方を採用。Q-ID で重複排除。
+ * 日本語版Wikipedia「誕生日」節から人物一覧＋動物一覧を構築（英語版ソースは使わない）。
+ * 名前・肩書きは日本語リスト由来、写真は ja Wikipedia の pageimages、並び替え指標(fame)のみ Wikidata。
  */
 async function buildPeopleAndAnimals(
-  enRaw: RawPerson[],
   jaBirths: JaRawBirth[],
   jaAnimals: JaRawBirth[],
   state: State,
@@ -168,43 +133,23 @@ async function buildPeopleAndAnimals(
   // 1) ja タイトルを {qid,photo} に解決（キャッシュ）。
   await ensurePages([...jaBirths, ...jaAnimals].map((b) => b.title), state);
 
-  // 2) ja + en の Q-ID をまとめて fame 補完（キャッシュ）。
+  // 2) ja の Q-ID を fame 補完（並び替え用・キャッシュ）。
   const jaQids = [...jaBirths, ...jaAnimals]
     .map((b) => state.pages[b.title]?.qid)
     .filter((q): q is string => Boolean(q));
-  await ensureEntities([...enRaw.map((r) => r.qid), ...jaQids], state);
+  await ensureEntities(jaQids, state);
 
-  // 3) 英語 description の日本語化（任意・キャッシュ。英語のみで載る人物のため）。
-  const needTranslate = enRaw
-    .filter((r) => !state.entities[r.qid]?.descJa && r.descEn)
-    .map((r) => r.descEn);
-  await ensureTranslations(needTranslate, state);
-
-  // 4) マージ。ja を基準に入れ、en は Q-ID 一致なら写真補完・不一致なら追加。
+  // 3) 人物を構築。同一人物の重複は Q-ID（無ければ name:year）で一意化。
   const byKey = new Map<string, Person>();
-  const keyOf = (qid: string | undefined, p: Person): string =>
-    qid ? `q:${qid}` : `n:${p.name}:${p.year}`;
-
   for (const b of jaBirths) {
     const { person, qid } = personFromJa(b, state);
-    const key = keyOf(qid, person);
+    const key = qid ? `q:${qid}` : `n:${person.name}:${person.year}`;
     if (!byKey.has(key)) byKey.set(key, person);
   }
-  for (const r of enRaw) {
-    const { person, qid } = personFromEn(r, state);
-    const key = keyOf(qid, person);
-    const existing = byKey.get(key);
-    if (existing) {
-      if (!existing.photo && person.photo) existing.photo = person.photo; // 写真は良い方を補完
-    } else {
-      byKey.set(key, person);
-    }
-  }
-
   const people = [...byKey.values()].filter((p) => !isYearLike(p.name));
   rankPeople(people);
 
-  // 5) 動物（英語ソース無し）。
+  // 4) 動物（人物以外）。
   const animals = jaAnimals.map((b) => personFromJa(b, state).person).filter((p) => !isYearLike(p.name));
   rankPeople(animals);
 
@@ -212,18 +157,8 @@ async function buildPeopleAndAnimals(
 }
 
 async function run(): Promise<void> {
-  const state = readJson<State>(STATE_PATH, {
-    entities: {},
-    translations: {},
-    pages: {},
-    enrichVersion: ENRICH_VERSION,
-  });
-  if (state.enrichVersion !== ENRICH_VERSION) {
-    state.translations = {};
-    state.enrichVersion = ENRICH_VERSION;
-  }
+  const state = readJson<State>(STATE_PATH, { entities: {}, pages: {} });
   state.entities ??= {};
-  state.translations ??= {};
   state.pages ??= {};
 
   const charMap = buildCharacterMap();
@@ -258,14 +193,6 @@ async function run(): Promise<void> {
       errs.push(`jawiki: ${(e as Error).message}`);
     }
 
-    // 英語版 births（任意。落ちても日本語側だけで続行）。
-    let enRaw: RawPerson[] = [];
-    try {
-      enRaw = await fetchBirths(month, day);
-    } catch (e) {
-      errs.push(`en-births: ${(e as Error).message}`);
-    }
-
     // 人物・動物を構築。jawiki 誕生日が取れなかった時のみ前回値へフォールバック（網羅性を落とさない）。
     let people: Person[];
     let animals: Person[];
@@ -274,7 +201,7 @@ async function run(): Promise<void> {
       animals = prev?.animals ?? [];
     } else {
       try {
-        ({ people, animals } = await buildPeopleAndAnimals(enRaw, jaBirths, jaAnimals, state));
+        ({ people, animals } = await buildPeopleAndAnimals(jaBirths, jaAnimals, state));
       } catch (e) {
         errs.push(`people: ${(e as Error).message}`);
         people = prev?.people ?? [];
