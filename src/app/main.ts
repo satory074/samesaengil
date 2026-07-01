@@ -62,12 +62,27 @@ export function boot(root: HTMLElement): void {
 
   async function fetchDay(key: string): Promise<DayData | null> {
     try {
-      const res = await fetch(siteLink(`/data/days/${key}.json`), { cache: "force-cache" });
+      // no-cache: 毎回サーバに条件付き検証（304 で軽い）。force-cache だとデータ更新後も
+      // 古い per-day JSON を返し続け、新フィールド（animals 等）欠落で描画が壊れる。
+      const res = await fetch(siteLink(`/data/days/${key}.json`), { cache: "no-cache" });
       if (!res.ok) return null;
       return (await res.json()) as DayData;
     } catch {
       return null;
     }
+  }
+
+  /** 取得結果を DayData 形に正規化（古い/部分的な JSON でも欠けたフィールドを既定値で補う）。 */
+  function normalizeDay(key: string, d: Partial<DayData> | null): DayData {
+    return {
+      date: d?.date ?? key,
+      people: d?.people ?? [],
+      animals: d?.animals ?? [],
+      characters: d?.characters ?? [],
+      anniversaries: d?.anniversaries ?? [],
+      events: d?.events ?? [],
+      updatedAt: d?.updatedAt ?? "",
+    };
   }
 
   function syncUrl(input: YMD): void {
@@ -87,7 +102,7 @@ export function boot(root: HTMLElement): void {
     syncUrl(input);
     refs.result.innerHTML = loadingHtml();
     const key = dayKey(input.month, input.day);
-    const day = (await fetchDay(key)) ?? emptyDay(key);
+    const day = normalizeDay(key, await fetchDay(key));
     refs.result.innerHTML = resultHtml(input, todayYMD(), day);
     lastPeople = day.people;
     last = { input, firstPerson: day.people[0]?.name };
@@ -150,6 +165,3 @@ export function boot(root: HTMLElement): void {
   }
 }
 
-function emptyDay(key: string): DayData {
-  return { date: key, people: [], animals: [], characters: [], anniversaries: [], events: [], updatedAt: "" };
-}

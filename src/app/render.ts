@@ -112,7 +112,7 @@ function personCard(p: Person, opts?: { hideFlag?: boolean }): string {
 
 /* ---------- 動物・名馬 ---------- */
 export function animalsHtml(animals: Person[]): string {
-  if (animals.length === 0) return ""; // 動物がいない日はセクションごと非表示
+  if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはセクションごと非表示
   const cards = animals.map((a) => personCard(a, { hideFlag: true })).join("");
   return section("🐎", "同じ誕生日の動物・名馬", `<div class="people-grid">${cards}</div>`, animals.length);
 }
