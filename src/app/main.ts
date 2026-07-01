@@ -1,10 +1,10 @@
 // クライアント側のブート・状態・イベント配線。
 // フロー: 生年月日入力 → 該当日の JSON を fetch → 暦を計算 → セクション描画 → ?d= 同期。
-import type { DayData } from "../lib/types";
+import type { DayData, Person } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
-import { errorHtml, loadingHtml, resultHtml } from "./render";
+import { errorHtml, loadingHtml, resultHtml, peopleMoreHtml } from "./render";
 
 interface Refs {
   year: HTMLSelectElement;
@@ -26,6 +26,8 @@ export function boot(root: HTMLElement): void {
 
   // 直近の結果（シェア文言用）。
   let last: { input: YMD; firstPerson?: string } | null = null;
+  // 直近の有名人一覧（「もっと見る」の遅延描画用）。
+  let lastPeople: Person[] = [];
 
   function readInput(): YMD {
     return {
@@ -87,6 +89,7 @@ export function boot(root: HTMLElement): void {
     const key = dayKey(input.month, input.day);
     const day = (await fetchDay(key)) ?? emptyDay(key);
     refs.result.innerHTML = resultHtml(input, todayYMD(), day);
+    lastPeople = day.people;
     last = { input, firstPerson: day.people[0]?.name };
   }
 
@@ -116,6 +119,10 @@ export function boot(root: HTMLElement): void {
       window.open(url, "_blank", "noopener");
     } else if (action === "copy-link") {
       void copyLink(target);
+    } else if (action === "show-more-people") {
+      const grid = target.closest(".section")?.querySelector("[data-people-grid]");
+      if (grid && lastPeople.length) grid.insertAdjacentHTML("beforeend", peopleMoreHtml(lastPeople));
+      target.remove();
     }
   });
 
@@ -144,5 +151,5 @@ export function boot(root: HTMLElement): void {
 }
 
 function emptyDay(key: string): DayData {
-  return { date: key, people: [], characters: [], anniversaries: [], events: [], updatedAt: "" };
+  return { date: key, people: [], animals: [], characters: [], anniversaries: [], events: [], updatedAt: "" };
 }

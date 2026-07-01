@@ -48,6 +48,8 @@ export interface DayData {
   /** "MM-DD"。 */
   date: string;
   people: Person[];
+  /** 同じ誕生日の動物（名馬など。日本語版 Wikipedia「人物以外」節由来）。Person 形を流用。 */
+  animals: Person[];
   characters: Character[];
   anniversaries: Anniversary[];
   events: DayEvent[];

@@ -69,31 +69,52 @@ export function summaryHtml(input: YMD, today: YMD): string {
 }
 
 /* ---------- 有名人 ---------- */
+/** 初期表示件数。これを超える分は「もっと見る」で展開。 */
+const PEOPLE_VISIBLE = 30;
+
 export function peopleHtml(people: Person[]): string {
   if (people.length === 0) {
     return section("🎤", "同じ誕生日の有名人", `<p class="empty">この日のデータが見つかりませんでした。</p>`);
   }
-  const cards = people.map(personCard).join("");
-  const body = `<div class="people-grid">${cards}</div>
+  const visible = people.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
+  // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
+  const restCount = Math.max(0, people.length - PEOPLE_VISIBLE);
+  const more = restCount
+    ? `<button class="more-btn" data-action="show-more-people">もっと見る（＋${restCount}人）</button>`
+    : "";
+  const body = `<div class="people-grid" data-people-grid>${visible}</div>
+    ${more}
     <p class="credit">顔写真・プロフィール: Wikipedia / Wikimedia Commons（各カードは出典記事にリンク）</p>`;
   return section("🎤", "同じ誕生日の有名人", body, people.length);
 }
 
-function personCard(p: Person): string {
+/** 「もっと見る」で追加描画する残りカード（先頭 PEOPLE_VISIBLE 件を除く）。 */
+export function peopleMoreHtml(people: Person[]): string {
+  return people.slice(PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
+}
+
+function personCard(p: Person, opts?: { hideFlag?: boolean }): string {
   const ini = esc(initials(p));
   const thumb = p.photo
     ? `<div class="thumb" data-initials="${ini}"><img class="photo" src="${esc(p.photo)}" alt="${esc(
         p.name,
       )}" loading="lazy" decoding="async" onerror="this.remove()" /></div>`
     : `<div class="thumb" data-initials="${ini}"></div>`;
-  const meta = `${p.year}年生まれ`;
-  const flag = p.jaKnown ? `<span class="ja-flag">日本でも有名</span>` : "";
+  const meta = p.year > 0 ? `${p.year}年生まれ` : "生年非公表";
+  const flag = !opts?.hideFlag && p.jaKnown ? `<span class="ja-flag">日本でも有名</span>` : "";
   const inner = `${thumb}<div class="body"><div class="name">${esc(p.name)}</div><div class="meta">${esc(
     meta,
   )}${p.desc ? ` ・ ${esc(p.desc)}` : ""}</div>${flag}</div>`;
   return p.url
     ? `<a class="pcard" href="${esc(p.url)}" target="_blank" rel="noopener">${inner}</a>`
     : `<div class="pcard">${inner}</div>`;
+}
+
+/* ---------- 動物・名馬 ---------- */
+export function animalsHtml(animals: Person[]): string {
+  if (animals.length === 0) return ""; // 動物がいない日はセクションごと非表示
+  const cards = animals.map((a) => personCard(a, { hideFlag: true })).join("");
+  return section("🐎", "同じ誕生日の動物・名馬", `<div class="people-grid">${cards}</div>`, animals.length);
 }
 
 /* ---------- フィクションキャラ ---------- */
@@ -162,6 +183,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData): string {
     headerHtml(input) +
     summaryHtml(input, today) +
     peopleHtml(day.people) +
+    animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +
     shareHtml()

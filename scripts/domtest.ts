@@ -34,6 +34,7 @@ const SAMPLE: DayData = {
       fame: 12,
     },
   ],
+  animals: [],
   characters: [{ name: "テストキャラ", work: "TEST", color: "#ff0000" }],
   anniversaries: [{ label: "靴の記念日", desc: "日本記念日協会" }, { label: "サイコの日" }],
   events: [{ year: 2013, text: "新幹線200系電車引退。" }],
@@ -155,6 +156,55 @@ function submit(dom: JSDOM, root: Element): void {
   assert(!!root.querySelector("#result .result-head"), "共有URLで自動描画される");
   assert(root.querySelector(".result-head")!.textContent!.includes("12月24日"), "12月24日生まれ");
   console.log("[dom] 共有URL復元 OK");
+}
+
+// ---- 4) 「もっと見る」の遅延描画（35人 → 初期30枚 → クリックで35枚） ----
+{
+  const many: DayData = {
+    ...SAMPLE,
+    people: Array.from({ length: 35 }, (_, i) => ({
+      name: `人物${i}`,
+      nameEn: `Person ${i}`,
+      year: i === 0 ? 0 : 1990, // i===0 で「生年非公表」表示も確認
+      desc: "テスト",
+      photo: "",
+      url: "",
+      jaKnown: false,
+      fame: 100 - i,
+    })),
+    animals: [
+      { name: "テスト馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 5 },
+    ],
+  };
+  const dom = setupDom("https://example.com/samesaengil/");
+  (globalThis as unknown as Record<string, unknown>).fetch = async () =>
+    ({ ok: true, json: async () => many }) as unknown as Response;
+  const { boot } = await import("../src/app/main");
+  const root = dom.window.document.getElementById("app")!;
+  boot(root as unknown as HTMLElement);
+  setSelect(root, "#in-year", "2000");
+  setSelect(root, "#in-month", "3");
+  setSelect(root, "#in-day", "15");
+  submit(dom, root);
+  await tick();
+  await tick();
+
+  const result = root.querySelector("#result")!;
+  assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 30, "初期は30枚のみ描画");
+  const moreBtn = result.querySelector('[data-action="show-more-people"]') as HTMLElement;
+  assert(!!moreBtn, "もっと見るボタンがある");
+  assert(moreBtn.textContent!.includes("＋5"), `残り5人表示（実際: ${moreBtn.textContent}）`);
+  // 生年非公表（year=0）の表示
+  assert([...result.querySelectorAll(".pcard .meta")].some((m) => m.textContent!.includes("生年非公表")), "生年非公表を表示");
+  // 動物セクション
+  assert(!!result.querySelector("section h2")!, "セクションがある");
+  assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物セクションがある");
+
+  moreBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await tick();
+  assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 35, "クリックで35枚に増える");
+  assert(!result.querySelector('[data-action="show-more-people"]'), "ボタンは消える");
+  console.log("[dom] もっと見る遅延描画 OK");
 }
 
 console.log("\n✅ DOM smoke test passed");
