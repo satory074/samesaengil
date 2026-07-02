@@ -15,6 +15,7 @@ import { fetchPageMeta, type PageMeta } from "./sources/jawikiPageMeta";
 import { fetchPageviews, last12Months } from "./sources/jawikiPageviews";
 import { mapLimit } from "./lib/util";
 import charactersSeed from "../src/data/characters.json";
+import fanwebSeed from "../src/data/characters-fanweb.json";
 
 const ROOT = process.cwd();
 const DAYS_DIR = path.join(ROOT, "public", "data", "days");
@@ -50,15 +51,52 @@ function writeJson(p: string, data: unknown): void {
   fs.writeFileSync(p, JSON.stringify(data, null, 0) + "\n");
 }
 
-/** 静的キャラ JSON を MM-DD -> Character[] にまとめる。 */
+type CharSeedRow = { name: string; work: string; month: number; day: number; url?: string; color?: string };
+
+/** 作品名から決定的に色チップ色（#rrggbb）を導出。同じ作品は常に同色。 */
+function colorForWork(work: string): string {
+  let h = 2166136261; // FNV-1a 32bit
+  for (let i = 0; i < work.length; i++) {
+    h ^= work.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hue = (h >>> 0) % 360;
+  return hslToHex(hue, 62, 52); // 彩度・明度は固定でビビッドに揃える
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100;
+  l /= 100;
+  const k = (n: number): number => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const to = (n: number): string => Math.round(255 * f(n)).toString(16).padStart(2, "0");
+  return `#${to(0)}${to(8)}${to(4)}`;
+}
+
+/**
+ * 静的キャラ JSON を MM-DD -> Character[] にまとめる。
+ * curated（characters.json、手描き color 維持）を先に入れ、続いて fanweb バルク
+ * （characters-fanweb.json、color は作品名から自動導出）を追加。各日 name で重複排除
+ * （curated 優先＝手描き色を残す）。
+ */
 function buildCharacterMap(): Map<string, Character[]> {
   const map = new Map<string, Character[]>();
-  for (const c of charactersSeed as { name: string; work: string; month: number; day: number; url?: string; color?: string }[]) {
+  const seen = new Map<string, Set<string>>(); // key -> その日の登録済み name 集合
+
+  const add = (c: CharSeedRow, color: string | undefined): void => {
     const key = `${pad(c.month)}-${pad(c.day)}`;
+    const names = seen.get(key) ?? new Set<string>();
+    if (names.has(c.name)) return; // 同日同名は先勝ち（curated 優先）
+    names.add(c.name);
+    seen.set(key, names);
     const arr = map.get(key) ?? [];
-    arr.push({ name: c.name, work: c.work, url: c.url, color: c.color });
+    arr.push({ name: c.name, work: c.work, url: c.url, color });
     map.set(key, arr);
-  }
+  };
+
+  for (const c of charactersSeed as CharSeedRow[]) add(c, c.color); // 手描き色を維持
+  for (const c of fanwebSeed as CharSeedRow[]) add(c, c.color ?? colorForWork(c.work));
   return map;
 }
 
@@ -171,6 +209,27 @@ async function run(): Promise<void> {
 
   const charMap = buildCharacterMap();
   const days = selectDays();
+
+  // 高速適用パス: Wikipedia を叩かず、既存 per-day ファイルの characters だけ差し替える。
+  // キャラ JSON を更新した後、全366日へ数秒で反映するための経路（people 等は保持）。
+  if (process.env.CHARS_ONLY) {
+    let updated = 0;
+    let missing = 0;
+    for (const { month, day } of days) {
+      const key = `${pad(month)}-${pad(day)}`;
+      const filePath = path.join(DAYS_DIR, `${key}.json`);
+      const prev = readJson<DayData | null>(filePath, null);
+      if (!prev) {
+        missing++;
+        continue; // ファイルが無い日はスキップ（まず通常 aggregate が必要）
+      }
+      writeJson(filePath, { ...prev, characters: charMap.get(key) ?? [], updatedAt: new Date().toISOString() });
+      updated++;
+    }
+    console.log(`[aggregate] CHARS_ONLY 完了: 更新${updated} / 欠落${missing} / 計${days.length}日`);
+    return;
+  }
+
   const single = days.length === 1;
   // 日単位で並列（Wikimedia への礼儀として控えめ）。AGG_CONCURRENCY で上書き可。
   const concurrency = single ? 1 : Number(process.env.AGG_CONCURRENCY ?? 3);

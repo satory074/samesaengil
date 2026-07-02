@@ -117,12 +117,26 @@ export function animalsHtml(animals: Person[]): string {
 }
 
 /* ---------- フィクションキャラ ---------- */
+/** 初期表示件数。これを超える分は「もっと見る」で展開（日によっては数百〜千件あるため）。 */
+const CHARS_VISIBLE = 40;
+
 export function charactersHtml(chars: Character[]): string {
   if (chars.length === 0) {
     return section("🦸", "同じ誕生日のキャラ", `<p class="empty">登録キャラに同じ誕生日はいませんでした。</p>`);
   }
-  const list = chars.map(charChip).join("");
-  return section("🦸", "同じ誕生日のキャラ", `<div class="char-list">${list}</div>`, chars.length);
+  const visible = chars.slice(0, CHARS_VISIBLE).map(charChip).join("");
+  // 残りは「もっと見る」クリック時に main.ts が charactersMoreHtml で遅延描画（初期 DOM を軽く保つ）。
+  const restCount = Math.max(0, chars.length - CHARS_VISIBLE);
+  const more = restCount
+    ? `<button class="more-btn" data-action="show-more-chars">もっと見る（＋${restCount}件）</button>`
+    : "";
+  const body = `<div class="char-list" data-char-list>${visible}</div>${more}`;
+  return section("🦸", "同じ誕生日のキャラ", body, chars.length);
+}
+
+/** 「もっと見る」で追加描画する残りチップ（先頭 CHARS_VISIBLE 件を除く）。 */
+export function charactersMoreHtml(chars: Character[]): string {
+  return chars.slice(CHARS_VISIBLE).map(charChip).join("");
 }
 
 function charChip(c: Character): string {
