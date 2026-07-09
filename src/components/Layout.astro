@@ -12,6 +12,10 @@ const {
 } = Astro.props;
 
 const ogImage = absUrl("/favicon.svg");
+
+// Cloudflare Web Analytics — Cookie 不要のプライバシー配慮解析。PUBLIC_CF_BEACON_TOKEN が
+// あればビーコンを出力、未設定なら非出力（graceful）。トークンは公開値なのでリポジトリ変数で駆動。
+const cfBeaconToken = import.meta.env.PUBLIC_CF_BEACON_TOKEN;
 ---
 
 <!doctype html>
@@ -32,6 +36,16 @@ const ogImage = absUrl("/favicon.svg");
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    {
+      cfBeaconToken && (
+        <script
+          is:inline
+          defer
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon={JSON.stringify({ token: cfBeaconToken })}
+        />
+      )
+    }
   </head>
   <body>
     <div class="wrap">

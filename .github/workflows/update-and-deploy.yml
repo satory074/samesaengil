@@ -58,6 +58,7 @@ jobs:
         run: npm run build
         env:
           GH_USER: ${{ github.repository_owner }}
+          PUBLIC_CF_BEACON_TOKEN: ${{ vars.PUBLIC_CF_BEACON_TOKEN }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
