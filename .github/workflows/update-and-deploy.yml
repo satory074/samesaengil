@@ -40,10 +40,14 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 任意（無ければ英語descのまま）
 
-      # 生まれた年（YYYY年の出来事＋オリコン週間1位）。同じゲートの下に置く。
+      # 生まれた年（YYYY年の出来事＋オリコン週間1位＋Spotify 曲リンク）。同じゲートの下に置く。
       - name: Aggregate years
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate:years
+        env:
+          # 任意。無ければ曲の解決をスキップし、表示側は Spotify 検索 URL にフォールバックする。
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
 
       # 差分があれば生成データをコミット
       - name: Commit data
@@ -51,7 +55,7 @@ jobs:
         run: |
           git config user.name "data-bot"
           git config user.email "actions@github.com"
-          git add public/data src/data/state.json
+          git add public/data src/data/state.json src/data/spotify.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh birthday data"
             git push

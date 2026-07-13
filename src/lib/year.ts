@@ -18,6 +18,17 @@ export function songForBirthday(md: MD, y: YearData): ChartWeek | null {
   return best ?? y.prevYearLast;
 }
 
+/**
+ * その曲を Spotify で開く URL。
+ * 集約時に曲ページを特定できていればそれを、できていなければ検索 URL を返す
+ * （Spotify 未収録・資格情報なしでビルドした古いデータでも必ず飛べる）。
+ */
+export function spotifyUrl(w: ChartWeek): string {
+  if (w.spotify) return w.spotify;
+  const q = `${w.title} ${w.artist}`.trim();
+  return `https://open.spotify.com/search/${encodeURIComponent(q)}`;
+}
+
 /** 誕生日ぴったりのできごと（一番刺さる）。 */
 export function eventOnBirthday(y: YearData, md: MD): YearEvent[] {
   return y.events.filter((e) => e.month === md.month && e.day === md.day);

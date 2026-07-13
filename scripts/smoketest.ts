@@ -27,7 +27,7 @@ import {
   isLeap,
   isValidDate,
 } from "../src/app/share";
-import { eventOnBirthday, eventsForMonth, songForBirthday } from "../src/lib/year";
+import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../src/lib/year";
 import { kpopOf, vtubersOf } from "../src/lib/oshi";
 import type { Character, Person, YearData } from "../src/lib/types";
 
@@ -209,6 +209,20 @@ function assert(cond: boolean, msg: string): void {
   assert(eventOnBirthday(y, { month: 3, day: 16 }).length === 0, "該当なしは空");
   const march = eventsForMonth(y, { month: 3, day: 15 });
   assert(march.length === 1 && march[0].text === "地下鉄サリン事件", "生まれた月のできごと（誕生日ぴったり分は除く）");
+
+  // Spotify リンク: 解決済みなら曲ページ、未解決なら検索 URL（古いデータでも必ず飛べる）
+  const resolved = { month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "", spotify: "https://open.spotify.com/track/abc123" };
+  assert(spotifyUrl(resolved) === "https://open.spotify.com/track/abc123", "解決済みは曲ページ直リンク");
+  const unresolved = { month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "" };
+  assert(
+    spotifyUrl(unresolved) === `https://open.spotify.com/search/${encodeURIComponent("ロビンソン スピッツ")}`,
+    "未解決は曲名＋アーティストの検索 URL",
+  );
+  assert(!spotifyUrl(unresolved).includes(" "), "検索 URL は空白をエンコードする");
+  assert(
+    spotifyUrl({ month: 1, day: 1, title: "曲", artist: "", url: "" }).endsWith(encodeURIComponent("曲")),
+    "アーティスト不明でも末尾に余計な空白を残さない",
+  );
   console.log("[year] OK");
 }
 

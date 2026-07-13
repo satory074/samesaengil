@@ -1,5 +1,6 @@
 // 「生まれた年」データを生成して public/data/years/YYYY.json に書き出す。
-// ソース: 日本語版Wikipedia「YYYY年」記事（できごと）＋「Template:オリコン週間シングルチャート第1位 YYYY年」。
+// ソース: 日本語版Wikipedia「YYYY年」記事（できごと）＋「Template:オリコン週間シングルチャート第1位 YYYY年」
+//        ＋ Spotify（週間1位の曲ページ URL、資格情報があるときだけ）。
 // 設計は aggregate.ts と同じ: ソース毎 try/catch、失敗時は前回ファイルへフォールバック。
 //
 // 実行:
@@ -12,10 +13,13 @@ import path from "node:path";
 import type { ChartWeek, YearData } from "../src/lib/types";
 import { fetchYearInfo } from "./sources/jawikiYear";
 import { fetchOriconYear, ORICON_FIRST_YEAR } from "./sources/jawikiOricon";
+import { attachSpotify, hasSpotifyCreds, type SpotifyStats } from "./sources/spotify";
 import { mapLimit } from "./lib/util";
 
 const ROOT = process.cwd();
 const YEARS_DIR = path.join(ROOT, "public", "data", "years");
+// 曲 → Spotify URL のキャッシュ（コミットする。"" は「Spotify に無い」の負キャッシュ）。
+const SPOTIFY_PATH = path.join(ROOT, "src", "data", "spotify.json");
 
 /** 出生年として現実的な範囲。index.astro の年セレクトが出す年は全部ファイルがある状態にする。 */
 const FIRST_YEAR = 1900;
@@ -61,8 +65,15 @@ async function run(): Promise<void> {
   const concurrency = single ? 1 : Number(process.env.YEAR_CONCURRENCY ?? 3);
   console.log(`[years] ${years.length}年ぶんを生成します（並列${concurrency}）…`);
 
+  const spotifyCache = readJson<Record<string, string>>(SPOTIFY_PATH, {});
+  const spotify: SpotifyStats = { resolved: 0, missing: 0, failed: 0 };
+  if (!hasSpotifyCreds()) {
+    console.log("[years] SPOTIFY_CLIENT_ID/SECRET が無いので曲の解決はスキップ（キャッシュ済みの分だけ埋めます）");
+  }
+
   let ok = 0;
   let withErrors = 0;
+  let done = 0;
   const emptyEvents: number[] = [];
   const emptyCharts: number[] = [];
 
@@ -91,6 +102,13 @@ async function run(): Promise<void> {
       errs.push(`oricon: ${(e as Error).message}`);
     }
 
+    // 各曲に Spotify の曲ページ URL を付ける（未解決でも表示側は検索 URL に落ちるので致命的でない）。
+    try {
+      await attachSpotify(prevYearLast ? [...chartWeeks, prevYearLast] : chartWeeks, spotifyCache, spotify);
+    } catch (e) {
+      errs.push(`spotify: ${(e as Error).message}`);
+    }
+
     const out: YearData = { year, events, highlights, chartWeeks, prevYearLast, updatedAt: new Date().toISOString() };
     writeJson(filePath, out);
 
@@ -98,6 +116,7 @@ async function run(): Promise<void> {
     if (events.length === 0) emptyEvents.push(year);
     if (chartWeeks.length === 0 && year >= ORICON_FIRST_YEAR) emptyCharts.push(year);
 
+    done++;
     if (errs.length) {
       withErrors++;
       console.warn(`  ${year} ⚠ ${errs.join(" / ")}（前回値でフォールバック）`);
@@ -109,10 +128,18 @@ async function run(): Promise<void> {
         `  ${year}: できごと${events.length} / 主な出来事${highlights.length} / 週間1位${chartWeeks.length}週` +
           `${prevYearLast ? ` / 前年末「${prevYearLast.title}」` : ""}`,
       );
+    } else if (done % 20 === 0) {
+      console.log(`  …${done}/${years.length}`);
+      writeJson(SPOTIFY_PATH, spotifyCache); // 途中保存（落ちても解決済みの曲は残す）
     }
   });
 
+  writeJson(SPOTIFY_PATH, spotifyCache);
   console.log(`[years] 完了: 成功${ok} / 警告${withErrors} / 計${years.length}年`);
+  console.log(
+    `[years] Spotify: 新規${spotify.resolved} / 未収録${spotify.missing} / 失敗${spotify.failed}` +
+      `（キャッシュ計${Object.keys(spotifyCache).length}曲）`,
+  );
   if (emptyEvents.length) console.warn(`[years] ⚠ できごと0件: ${emptyEvents.join(", ")}`);
   if (emptyCharts.length) console.warn(`[years] ⚠ 週間1位0件（1968年以降なのに）: ${emptyCharts.join(", ")}`);
 }

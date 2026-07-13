@@ -1,34 +1,25 @@
 // 366日ぶんの「誕生日データ」を生成して public/data/days/MM-DD.json に書き出す。
-// ソース: 日本語版Wikipedia「M月D日」の誕生日節（人物リスト＋顔写真）+ Wikidata(wbgetentities, 並び替え用の知名度のみ) + 静的キャラJSON。
+// ソース: 日本語版Wikipedia「M月D日」の誕生日節（人物リスト＋顔写真）+ 閲覧数(pageviews, 並び替え用の人気のみ) + 静的キャラJSON。
 // 設計: ソース毎 try/catch、失敗時は前回ファイルへフォールバック（1ソース/1日が落ちても全体を壊さない）。
 //
 // 実行:
 //   npm run aggregate            … 全366日
 //   npm run aggregate 03-15      … 指定日のみ（argv）
 //   ONLY_DAYS=03-15,07-04 npm run aggregate
+//   CHARS_ONLY=1 npm run aggregate … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
-import { fetchPageMeta, type PageMeta } from "./sources/jawikiPageMeta";
-import { fetchPageviews, last12Months } from "./sources/jawikiPageviews";
 import { mapLimit } from "./lib/util";
+import { ensurePages, ensurePageviews, readState, resolveWorkFame, writeState, type State } from "./lib/state";
 import { allDays } from "../src/lib/days";
 import charactersSeed from "../src/data/characters.json";
 import fanwebSeed from "../src/data/characters-fanweb.json";
 
 const ROOT = process.cwd();
 const DAYS_DIR = path.join(ROOT, "public", "data", "days");
-const STATE_PATH = path.join(ROOT, "src", "data", "state.json");
-
-interface State {
-  pages: Record<string, PageMeta>; // jawiki title -> {qid, photo, title(正規化後)}（負キャッシュは {}）
-  views: Record<string, number>; // 正規化後タイトル -> 日本語版Wikipedia の年間閲覧数（人気指標）
-}
-
-// 閲覧数の集計期間（実行時に直近12か月を確定）。
-const PV_WINDOW = last12Months(new Date());
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -68,13 +59,19 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${to(0)}${to(8)}${to(4)}`;
 }
 
+/** 2 つのキャラ seed に出てくる作品名（ユニーク、~7000件）。 */
+function allWorks(): string[] {
+  const seeds = [...(charactersSeed as CharSeedRow[]), ...(fanwebSeed as CharSeedRow[])];
+  return [...new Set(seeds.map((c) => c.work).filter(Boolean))];
+}
+
 /**
  * 静的キャラ JSON を MM-DD -> Character[] にまとめる。
  * curated（characters.json、手描き color 維持）を先に入れ、続いて fanweb バルク
  * （characters-fanweb.json、color は作品名から自動導出）を追加。各日 name で重複排除
- * （curated 優先＝手描き色を残す）。
+ * （curated 優先＝手描き色を残す）。最後に「作品の人気」順へ並べ替える。
  */
-function buildCharacterMap(): Map<string, Character[]> {
+function buildCharacterMap(fame: Map<string, number>): Map<string, Character[]> {
   const map = new Map<string, Character[]>();
   const seen = new Map<string, Set<string>>(); // key -> その日の登録済み name 集合
 
@@ -91,7 +88,20 @@ function buildCharacterMap(): Map<string, Character[]> {
 
   for (const c of charactersSeed as CharSeedRow[]) add(c, c.color); // 手描き色を維持
   for (const c of fanwebSeed as CharSeedRow[]) add(c, c.color ?? colorForWork(c.work));
+  for (const arr of map.values()) rankCharacters(arr, fame);
   return map;
+}
+
+/**
+ * 作品の閲覧数(人気)降順 → 作品名（同じ作品を隣接させる）→ 作品内は seed 順（Array#sort は安定）。
+ * 1日 最大 ~1900 件あり初期表示は先頭40件なので、有名作品のキャラがそこに来るようにする。
+ */
+function rankCharacters(chars: Character[], fame: Map<string, number>): void {
+  chars.sort((a, b) => {
+    const d = (fame.get(b.work) ?? 0) - (fame.get(a.work) ?? 0);
+    if (d !== 0) return d;
+    return a.work < b.work ? -1 : a.work > b.work ? 1 : 0;
+  });
 }
 
 function selectDays(): { month: number; day: number }[] {
@@ -139,27 +149,6 @@ function personFromJa(b: JaRawBirth, state: State): { person: Person; canon: str
   };
 }
 
-/** ja タイトル群を {qid,photo,正規化タイトル} に解決（state.pages にキャッシュ、負キャッシュ込み）。 */
-async function ensurePages(titles: string[], state: State): Promise<void> {
-  const need = [...new Set(titles.filter(Boolean))].filter((t) => {
-    const m = state.pages[t];
-    if (m === undefined) return true; // 未取得
-    if (m.title) return false; // 正規化タイトルあり＝最新
-    return Boolean(m.qid || m.photo); // 旧キャッシュ（正規化タイトル欠落）は再取得。{} は負キャッシュで据置
-  });
-  if (need.length === 0) return;
-  const fetched = await fetchPageMeta(need);
-  for (const t of need) state.pages[t] = fetched.get(t) ?? {}; // 無ければ {} で負キャッシュ
-}
-
-/** 正規化タイトル群の未キャッシュ分だけ閲覧数を取得（state.views にキャッシュ）。 */
-async function ensurePageviews(titles: string[], state: State): Promise<void> {
-  const need = [...new Set(titles.filter(Boolean))].filter((t) => !(t in state.views));
-  if (need.length === 0) return;
-  const fetched = await fetchPageviews(need, PV_WINDOW.start, PV_WINDOW.end);
-  for (const t of need) state.views[t] = fetched.get(t) ?? 0;
-}
-
 /**
  * 日本語版Wikipedia「誕生日」節から人物一覧＋動物一覧を構築（人物リストは日本語版のみ）。
  * 名前・肩書きは日本語リスト由来、写真は ja pageimages、並び替えは ja Wikipedia の閲覧数(=人気)。
@@ -192,21 +181,22 @@ async function buildPeopleAndAnimals(
 }
 
 async function run(): Promise<void> {
-  const state = readJson<State>(STATE_PATH, { pages: {}, views: {} });
-  state.pages ??= {};
-  state.views ??= {};
-  // 旧スキーマの未使用キャッシュ（Wikidata entities 等）を捨てて state.json を軽く保つ。
-  const legacy = state as unknown as Record<string, unknown>;
-  delete legacy.entities;
-  delete legacy.translations;
-  delete legacy.enrichVersion;
+  const state = readState();
+  const charsOnly = Boolean(process.env.CHARS_ONLY);
 
-  const charMap = buildCharacterMap();
+  // キャラの並び替えに使う「作品の人気」（＝作品記事の年間閲覧数）。人物の fame と同じ仕組み・
+  // 同じキャッシュ（state.pages/views）。CHARS_ONLY は Wikipedia を叩かずキャッシュ済みの分だけ使う。
+  const fame = await resolveWorkFame(allWorks(), state, charsOnly);
+  const ranked = [...fame.values()].filter((v) => v > 0).length;
+  console.log(`[aggregate] 作品の人気: ${ranked}/${fame.size} 作品に閲覧数あり`);
+  if (!charsOnly) writeState(state);
+
+  const charMap = buildCharacterMap(fame);
   const days = selectDays();
 
   // 高速適用パス: Wikipedia を叩かず、既存 per-day ファイルの characters だけ差し替える。
   // キャラ JSON を更新した後、全366日へ数秒で反映するための経路（people 等は保持）。
-  if (process.env.CHARS_ONLY) {
+  if (charsOnly) {
     let updated = 0;
     let missing = 0;
     for (const { month, day } of days) {
@@ -292,11 +282,11 @@ async function run(): Promise<void> {
       console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length} / できごと${events.length}`);
     } else if (done % 20 === 0) {
       console.log(`  …${done}/${days.length}`);
-      writeJson(STATE_PATH, state); // 途中保存（落ちてもキャッシュが残る）
+      writeState(state); // 途中保存（落ちてもキャッシュが残る）
     }
   });
 
-  writeJson(STATE_PATH, state);
+  writeState(state);
   console.log(`[aggregate] 完了: 成功${ok} / 警告${withErrors} / 計${days.length}日`);
 }
 

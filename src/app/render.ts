@@ -1,7 +1,7 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
 import type { Anniversary, Character, DayData, DayEvent, Person, YearData } from "../lib/types";
-import { eventOnBirthday, eventsForMonth, songForBirthday } from "../lib/year";
+import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   ageOf,
   birthFlowerOf,
@@ -16,12 +16,9 @@ import {
   warekiOf,
   weekdayOf,
   zodiacOf,
-  type MD,
   type YMD,
 } from "../lib/almanac";
-import { dayKeyOf } from "../lib/days";
 import { kpopOf, vtubersOf } from "../lib/oshi";
-import { siteLink } from "../lib/url";
 
 export function esc(s: string): string {
   return s
@@ -140,6 +137,7 @@ export function bornYearHtml(input: YMD, year: YearData | null): string {
             : esc(song.title)
         }</div>
         <div class="song-meta">${esc(song.artist)}${song.artist ? " ・ " : ""}${song.month}/${song.day} 付</div>
+        <a class="song-spotify" href="${esc(spotifyUrl(song))}" target="_blank" rel="noopener">🎧 Spotifyで聴く</a>
       </div>`
     : "";
 
@@ -297,14 +295,6 @@ export function anniversaryHtml(anniversaries: Anniversary[], events: DayEvent[]
   return section("📅", "今日は何の日", body);
 }
 
-/* ---------- 日別ページへの導線（トップ → /day/MM-DD） ---------- */
-export function dayPageLinkHtml(md: MD): string {
-  const key = dayKeyOf(md);
-  return `<p class="daylink"><a href="${esc(siteLink(`/day/${key}/`))}">📖 ${md.month}月${
-    md.day
-  }日の詳細ページ（年なしでも見られる）→</a></p>`;
-}
-
 /* ---------- 共有 ---------- */
 export function shareHtml(): string {
   return section(
@@ -343,7 +333,6 @@ export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData 
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +
-    dayPageLinkHtml(input) +
     shareHtml()
   );
 }

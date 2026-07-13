@@ -7,7 +7,7 @@ interface Props {
   description?: string;
   /** 正規 URL（base 相対）。?d= のクエリ違いを別ページとしてインデックスさせないために使う。 */
   canonical?: string;
-  /** OG 画像（base 相対）。日別ページは /og/MM-DD.png（ビルド時生成）を渡す。 */
+  /** OG 画像（base 相対）。未指定なら汎用カード。 */
   image?: string;
 }
 const {

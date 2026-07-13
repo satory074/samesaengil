@@ -73,6 +73,8 @@ export interface ChartWeek {
   artist: string;
   /** jawiki の曲記事 URL（無ければ空文字）。 */
   url: string;
+  /** Spotify の曲ページ URL。未解決/Spotify 未収録なら欠落（表示側は検索 URL にフォールバック）。 */
+  spotify?: string;
 }
 
 /** 1 年ぶんの集約データ（public/data/years/YYYY.json）。 */

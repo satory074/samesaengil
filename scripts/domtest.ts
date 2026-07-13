@@ -48,7 +48,16 @@ const SAMPLE_YEAR: YearData = {
     { month: 3, day: 20, text: "地下鉄サリン事件" },
   ],
   highlights: ["阪神淡路大震災"],
-  chartWeeks: [{ month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "https://ja.wikipedia.org/wiki/x" }],
+  chartWeeks: [
+    {
+      month: 3,
+      day: 13,
+      title: "ロビンソン",
+      artist: "スピッツ",
+      url: "https://ja.wikipedia.org/wiki/x",
+      spotify: "https://open.spotify.com/track/abc123",
+    },
+  ],
   prevYearLast: null,
   updatedAt: "2026-06-30T00:00:00Z",
 };
@@ -145,6 +154,10 @@ function submit(dom: JSDOM, root: Element): void {
   assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年（1995年）")), "生まれた年セクション");
   assert(result.querySelector(".song-title")!.textContent!.includes("ロビンソン"), "生まれた週のオリコン1位");
   assert(result.querySelector(".song-meta")!.textContent!.includes("スピッツ"), "アーティスト名");
+  assert(
+    result.querySelector(".song-spotify")!.getAttribute("href") === "https://open.spotify.com/track/abc123",
+    "Spotify の曲ページへのリンク",
+  );
   const yearTexts = [...result.querySelectorAll(".year-events li")].map((e) => e.textContent);
   assert(yearTexts.some((t) => t?.includes("誕生日ぴったりのできごと")), "誕生日ぴったりのできごと");
   assert(yearTexts.some((t) => t?.includes("阪神淡路大震災")), "その年の主な出来事");
