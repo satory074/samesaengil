@@ -1,8 +1,9 @@
 // クライアント側のブート・状態・イベント配線。
 // フロー: 生年月日入力 → 該当日の JSON を fetch → 暦を計算 → セクション描画 → ?d= 同期。
-import type { Character, DayData, Person, YearData } from "../lib/types";
+import type { Character, DayData, Person, YearData, YearPerson } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
+import { exactMatchesOf, withoutExact } from "../lib/peers";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
 import { errorHtml, loadingHtml, resultHtml } from "./render";
 import { wireMoreButtons } from "./more";
@@ -31,6 +32,8 @@ export function boot(root: HTMLElement): void {
   let lastPeople: Person[] = [];
   // 直近のキャラ一覧（「もっと見る」の遅延描画用）。
   let lastCharacters: Character[] = [];
+  // 直近の同い年の有名人（「もっと見る」の遅延描画用。render と同じく ⭐ 完全一致の分は除いてある）。
+  let lastYearPeople: YearPerson[] = [];
 
   function readInput(): YMD {
     return {
@@ -107,6 +110,7 @@ export function boot(root: HTMLElement): void {
       highlights: y?.highlights ?? [],
       chartWeeks: y?.chartWeeks ?? [],
       prevYearLast: y?.prevYearLast ?? null,
+      people: y?.people ?? [],
       updatedAt: y?.updatedAt ?? "",
     };
   }
@@ -134,6 +138,8 @@ export function boot(root: HTMLElement): void {
     refs.result.innerHTML = resultHtml(input, todayYMD(), day, year);
     lastPeople = day.people;
     lastCharacters = day.characters;
+    // render 側と同じ切り方（⭐ に出した人はカテゴリ側に出さない）。
+    lastYearPeople = year ? withoutExact(year.people, exactMatchesOf(day.people, input.year)) : [];
     last = { input, firstPerson: day.people[0]?.name };
   }
 
@@ -165,8 +171,11 @@ export function boot(root: HTMLElement): void {
       void copyLink(target);
     }
   });
-  // 「もっと見る」は日別ページと共用の実装（more.ts）。
-  wireMoreButtons(root, { people: () => lastPeople, characters: () => lastCharacters });
+  wireMoreButtons(root, {
+    people: () => lastPeople,
+    characters: () => lastCharacters,
+    yearPeople: () => lastYearPeople,
+  });
 
   async function copyLink(btn: HTMLElement): Promise<void> {
     try {

@@ -77,6 +77,22 @@ export interface ChartWeek {
   spotify?: string;
 }
 
+/**
+ * その年に生まれた有名人（日別データを生年で逆引きしたもの）。
+ * 生成は scripts/aggregateYears.ts。Person より痩せているのは、年 JSON が
+ * 毎回 fetch されるホットパスだから（nameEn/jaKnown は使わない、fame は並びに畳み込み済み）。
+ */
+export interface YearPerson {
+  name: string;
+  /** 誕生日。「6/18生まれ」の表示と、⭐（生年月日まで一致）との二重表示回避に使う。 */
+  month: number;
+  day: number;
+  /** 肩書き（表示のほか、カテゴリ分類の入力でもある。src/lib/peers.ts）。 */
+  desc: string;
+  photo: string;
+  url: string;
+}
+
 /** 1 年ぶんの集約データ（public/data/years/YYYY.json）。 */
 export interface YearData {
   year: number;
@@ -88,6 +104,8 @@ export interface YearData {
   chartWeeks: ChartWeek[];
   /** 前年の最終週の1位（年始生まれが「生まれた週の1位」を引けるように）。 */
   prevYearLast: ChartWeek | null;
+  /** その年に生まれた有名人（人気順・カテゴリごとに上限つき）。 */
+  people: YearPerson[];
   updatedAt: string;
 }
 

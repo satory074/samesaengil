@@ -1,7 +1,7 @@
 // DOM スモークテスト: boot → 入力 → fetch(スタブ) → セクション描画 → ?d= 同期 → 共有URL復元。
 // 実行: npx tsx scripts/domtest.ts
 import { JSDOM } from "jsdom";
-import type { DayData, YearData } from "../src/lib/types";
+import type { DayData, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -33,6 +33,17 @@ const SAMPLE: DayData = {
       jaKnown: false,
       fame: 12,
     },
+    {
+      // 入力（1995-03-15）と生年月日がぴったり同じ人＝「⭐ 完全一致」に出る
+      name: "同い年さん",
+      nameEn: "",
+      year: 1995,
+      desc: "俳優",
+      photo: "",
+      url: "https://ja.wikipedia.org/wiki/Onaidoshi",
+      jaKnown: true,
+      fame: 50,
+    },
   ],
   animals: [],
   characters: [{ name: "テストキャラ", work: "TEST", color: "#ff0000" }],
@@ -40,6 +51,15 @@ const SAMPLE: DayData = {
   events: [{ year: 2013, text: "新幹線200系電車引退。" }],
   updatedAt: "2026-06-30T00:00:00Z",
 };
+
+const yp = (name: string, desc: string, day: number): YearPerson => ({
+  name,
+  month: 1,
+  day,
+  desc,
+  photo: "",
+  url: `https://ja.wikipedia.org/wiki/${name}`,
+});
 
 const SAMPLE_YEAR: YearData = {
   year: 1995,
@@ -59,6 +79,14 @@ const SAMPLE_YEAR: YearData = {
     },
   ],
   prevYearLast: null,
+  people: [
+    // ⭐ にも出る人。カテゴリ側からは除かれる（二重表示の防止）ことを確認するために入れておく。
+    { name: "同い年さん", month: 3, day: 15, desc: "俳優", photo: "", url: "https://ja.wikipedia.org/wiki/Onaidoshi" },
+    // 芸能は 14 人＝初期12枚＋「もっと見る（＋2人）」、スポーツ 2 人＝ボタン無し
+    ...Array.from({ length: 14 }, (_, i) => yp(`芸能${i}`, "俳優", i + 1)),
+    ...Array.from({ length: 2 }, (_, i) => yp(`蹴球${i}`, "サッカー選手", i + 1)),
+    yp("歌姫", "歌手", 5),
+  ],
   updatedAt: "2026-06-30T00:00:00Z",
 };
 
@@ -162,14 +190,42 @@ function submit(dom: JSDOM, root: Element): void {
   assert(yearTexts.some((t) => t?.includes("誕生日ぴったりのできごと")), "誕生日ぴったりのできごと");
   assert(yearTexts.some((t) => t?.includes("阪神淡路大震災")), "その年の主な出来事");
 
-  // 有名人カード
-  const pcards = result.querySelectorAll(".pcard");
-  assert(pcards.length === 2, `有名人カード2件（実際: ${pcards.length}）`);
+  // 有名人カード（「同じ誕生日の有名人」セクションのグリッド＝data-people-grid に限定して数える）
+  const pcards = result.querySelectorAll("[data-people-grid] .pcard");
+  assert(pcards.length === 3, `有名人カード3件（実際: ${pcards.length}）`);
   assert(!!result.querySelector('.pcard[href*="wikipedia"]'), "Wikipedia リンク付きカード");
   assert(!!result.querySelector(".pcard .photo"), "写真ありカードの img");
   // 写真なし(2人目)はイニシャル data-initials を持つ
   const thumbs = [...result.querySelectorAll(".thumb")];
   assert(thumbs.some((t) => (t as HTMLElement).dataset.initials === "SP"), "イニシャルSP（Some Person）");
+
+  // 同じ年に生まれた有名人（1995年生まれ・カテゴリ別）
+  assert(
+    [...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("1995年生まれの有名人")),
+    "同い年セクション",
+  );
+  const exactBlock = result.querySelector(".year-people-block.exact")!;
+  assert(!!exactBlock, "⭐ 生年月日まで完全に同じブロックがある");
+  assert(exactBlock.querySelectorAll(".pcard").length === 1, "⭐ は1人（同い年さん）");
+  assert(exactBlock.querySelector(".pcard .name")!.textContent === "同い年さん", "⭐ の中身");
+  assert(exactBlock.querySelector(".pcard .meta")!.textContent!.includes("3/15生まれ"), "⭐ カードは誕生日を出す");
+  // ⭐ に出した人はカテゴリ側に出ない（同じセクション内で二重に出さない）
+  const sameYearSection = result.querySelector(".year-people-block")!.closest("section")!;
+  const dupes = [...sameYearSection.querySelectorAll(".pcard .name")].filter((n) => n.textContent === "同い年さん");
+  assert(dupes.length === 1, `同い年さんはセクション内に1回だけ（実際: ${dupes.length}）`);
+  // 芸能 14人 → 初期12枚＋もっと見る、スポーツ 2人 → ボタン無し
+  assert(result.querySelectorAll('[data-year-grid="ent"] .pcard').length === 12, "芸能は初期12枚");
+  assert(result.querySelectorAll('[data-year-grid="sports"] .pcard').length === 2, "スポーツは2枚");
+  assert(result.querySelectorAll('[data-year-grid="music"] .pcard').length === 1, "音楽は1枚");
+  const yMore = result.querySelector('[data-action="show-more-year-people"][data-cat="ent"]') as HTMLElement;
+  assert(!!yMore, "芸能に「もっと見る」がある");
+  assert(yMore.textContent!.includes("＋2"), `芸能の残りは2人（実際: ${yMore.textContent}）`);
+  assert(!result.querySelector('[data-action="show-more-year-people"][data-cat="sports"]'), "スポーツにボタンは無い");
+  yMore.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await tick();
+  assert(result.querySelectorAll('[data-year-grid="ent"] .pcard').length === 14, "クリックで芸能が14枚に増える");
+  assert(result.querySelectorAll('[data-year-grid="sports"] .pcard').length === 2, "他カテゴリは増えない");
+  assert(!result.querySelector('[data-action="show-more-year-people"][data-cat="ent"]'), "芸能のボタンは消える");
 
   // キャラ・記念日
   assert(result.querySelector(".chip .cname")!.textContent === "テストキャラ", "キャラチップ");

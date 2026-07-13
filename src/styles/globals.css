@@ -549,6 +549,24 @@ a:hover {
   color: var(--text-muted);
 }
 
+/* ---- 同じ年に生まれた有名人 ---- */
+.year-people-block + .year-people-block {
+  margin-top: 20px;
+}
+.year-people-block h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+/* 生年月日まで一致した人は、このセクションの主役なので色で立てる。 */
+.year-people-block.exact h3 {
+  color: var(--pink);
+}
+.year-people-block .more-btn {
+  margin-top: 10px;
+}
+
 /* ---- 共有 ---- */
 .share-row {
   display: flex;

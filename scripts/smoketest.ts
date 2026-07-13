@@ -29,7 +29,8 @@ import {
 } from "../src/app/share";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../src/lib/year";
 import { kpopOf, vtubersOf } from "../src/lib/oshi";
-import type { Character, Person, YearData } from "../src/lib/types";
+import { categorize, exactMatchesOf, groupByCat, withoutExact } from "../src/lib/peers";
+import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -189,6 +190,7 @@ function assert(cond: boolean, msg: string): void {
       { month: 3, day: 20, title: "その先の週", artist: "誰か", url: "" },
     ],
     prevYearLast: { month: 12, day: 26, title: "前年最終週の曲", artist: "前年", url: "" },
+    people: [],
     updatedAt: "",
   };
 
@@ -261,6 +263,59 @@ function assert(cond: boolean, msg: string): void {
   assert(v.length === 3, `VTuber は3人（実際: ${v.length}）`);
   assert(!v.some((c) => c.work === "ONE PIECE"), "普通のキャラは含めない");
   console.log("[oshi] OK");
+}
+
+// ---- 10) 同じ年に生まれた有名人（肩書きの分類・⭐ 完全一致） ----
+{
+  // 主業は肩書きの先頭に来るので、「最初にマッチした位置が早い方」で分類する。
+  assert(categorize("元プロ野球選手") === "sports", "野球はスポーツ");
+  assert(categorize("フィギュアスケート選手") === "sports", "スケートはスポーツ");
+  assert(categorize("アイドル、歌手（SixTONES）") === "ent", "アイドルが先なら芸能（歌手より前）");
+  assert(categorize("歌手、俳優") === "music", "歌手が先なら音楽（俳優より前）");
+  assert(categorize("元アナウンサー、タレント") === "ent", "アナウンサーは芸能");
+  assert(categorize("元サッカー選手、指導者") === "sports", "元サッカー選手はスポーツ");
+  assert(categorize("漫画家") === "culture", "漫画家は文化");
+  assert(categorize("シンガーソングライター") === "music", "シンガーは音楽");
+  assert(categorize("政治家") === "other", "政治家はその他");
+  assert(categorize("") === "other", "肩書き無しはその他");
+  // 「陸上」だけだと陸上自衛官を拾ってしまうので「陸上競技」で見ている
+  assert(categorize("陸上自衛官") === "other", "陸上自衛官をスポーツにしない");
+  assert(categorize("陸上競技選手") === "sports", "陸上競技はスポーツ");
+
+  const yp = (name: string, desc: string, month = 6, day = 18): YearPerson => ({
+    name,
+    month,
+    day,
+    desc,
+    photo: "",
+    url: `https://ja.wikipedia.org/wiki/${name}`,
+  });
+  const groups = groupByCat([yp("松村北斗", "アイドル、俳優"), yp("南野拓実", "サッカー選手"), yp("あいみょん", "歌手")]);
+  assert(groups.get("ent")!.length === 1 && groups.get("ent")![0].name === "松村北斗", "芸能に分配");
+  assert(groups.get("sports")!.length === 1, "スポーツに分配");
+  assert(groups.get("music")!.length === 1, "音楽に分配");
+  assert(groups.get("culture")!.length === 0, "該当なしのカテゴリは空配列（キーは常にある）");
+
+  // ⭐ は日別データ（全件持っている）から引く。年側の上限で切られた人も拾えるように。
+  const person = (name: string, year: number): Person => ({
+    name,
+    nameEn: "",
+    year,
+    desc: "俳優",
+    photo: "",
+    url: `https://ja.wikipedia.org/wiki/${name}`,
+    jaKnown: true,
+    fame: 1,
+  });
+  const dayPeople = [person("松村北斗", 1995), person("誰か", 1980)];
+  const exact = exactMatchesOf(dayPeople, 1995);
+  assert(exact.length === 1 && exact[0].name === "松村北斗", "生年月日まで一致する人だけ");
+  assert(exactMatchesOf(dayPeople, 1999).length === 0, "同い年がいなければ空");
+
+  // ⭐ に出した人はカテゴリ側から除く（同じセクションでの二重表示を防ぐ）
+  const rest = withoutExact([yp("松村北斗", "アイドル、俳優"), yp("南野拓実", "サッカー選手")], exact);
+  assert(rest.length === 1 && rest[0].name === "南野拓実", "⭐ の人はカテゴリ側から除かれる");
+  console.log("[peers] OK");
 }
 
 console.log("\n✅ smoketest passed");

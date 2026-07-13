@@ -1,7 +1,8 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
-import type { Anniversary, Character, DayData, DayEvent, Person, YearData } from "../lib/types";
+import type { Anniversary, Character, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
+import { CAT_LABELS, CAT_ORDER, categorize, exactMatchesOf, groupByCat, withoutExact } from "../lib/peers";
 import {
   ageOf,
   birthFlowerOf,
@@ -29,8 +30,8 @@ export function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** 英語名（無ければ日本語名）からイニシャル 1〜2 文字。 */
-export function initials(person: Person): string {
+/** 英語名（無ければ日本語名）からイニシャル 1〜2 文字。YearPerson（nameEn を持たない）でも使う。 */
+export function initials(person: { name: string; nameEn?: string }): string {
   const en = person.nameEn?.trim();
   if (en) {
     const parts = en.split(/\s+/).filter(Boolean);
@@ -192,20 +193,24 @@ export function peopleMoreHtml(people: Person[]): string {
   return people.slice(PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
 }
 
-function personCard(p: Person): string {
+/** カード 1 枚。meta 行の前置き（「1995年生まれ」「6/18生まれ」）だけ呼び出し側で決める。 */
+function cardHtml(p: { name: string; nameEn?: string; desc: string; photo: string; url: string }, meta: string): string {
   const ini = esc(initials(p));
   const thumb = p.photo
     ? `<div class="thumb" data-initials="${ini}"><img class="photo" src="${esc(p.photo)}" alt="${esc(
         p.name,
       )}" loading="lazy" decoding="async" onerror="this.remove()" /></div>`
     : `<div class="thumb" data-initials="${ini}"></div>`;
-  const meta = p.year > 0 ? `${p.year}年生まれ` : "生年非公表";
   const inner = `${thumb}<div class="body"><div class="name">${esc(p.name)}</div><div class="meta">${esc(
     meta,
   )}${p.desc ? ` ・ ${esc(p.desc)}` : ""}</div></div>`;
   return p.url
     ? `<a class="pcard" href="${esc(p.url)}" target="_blank" rel="noopener">${inner}</a>`
     : `<div class="pcard">${inner}</div>`;
+}
+
+function personCard(p: Person): string {
+  return cardHtml(p, p.year > 0 ? `${p.year}年生まれ` : "生年非公表");
 }
 
 /* ---------- 推し（K-POPアイドル・VTuber） ---------- */
@@ -238,6 +243,64 @@ export function oshiHtml(people: Person[], chars: Character[]): string {
     : "";
 
   return section("🎙", "同じ誕生日の推し", `${kpopBlock}${vtuberBlock}`, kpop.length + vtubers.length);
+}
+
+/* ---------- 同じ年に生まれた有名人 ---------- */
+/** カテゴリブロックの初期表示件数。これを超える分は「もっと見る」で展開。 */
+const YEAR_PEOPLE_VISIBLE = 12;
+
+function yearPersonCard(p: YearPerson): string {
+  return cardHtml(p, `${p.month}/${p.day}生まれ`);
+}
+
+/**
+ * 同い年の有名人を、肩書きからのカテゴリ（芸能・スポーツ・音楽…）別に並べる。
+ * 先頭には「生年月日まで完全に同じ」人を出し、その人はカテゴリ側からは除く（二重表示の防止）。
+ */
+export function sameYearHtml(input: YMD, day: DayData, year: YearData | null): string {
+  if (!year) return ""; // 年 JSON が無い（範囲外）ならセクションごと非表示
+  const exact = exactMatchesOf(day.people, input.year);
+  const rest = withoutExact(year.people, exact);
+  if (exact.length === 0 && rest.length === 0) return "";
+
+  const exactBlock = exact.length
+    ? `<div class="year-people-block exact"><h3>⭐ 生年月日まで完全に同じ！（${exact.length}人）</h3><div class="people-grid">${exact
+        .map((p) => cardHtml(p, `${input.month}/${input.day}生まれ`))
+        .join("")}</div></div>`
+    : "";
+
+  const groups = groupByCat(rest);
+  const catBlocks = CAT_ORDER.map((cat) => {
+    const list = groups.get(cat) ?? [];
+    if (list.length === 0) return "";
+    const visible = list.slice(0, YEAR_PEOPLE_VISIBLE).map(yearPersonCard).join("");
+    // 残りは「もっと見る」クリック時に more.ts が yearPeopleMoreHtml で遅延描画（カテゴリごとに独立）。
+    const restCount = Math.max(0, list.length - YEAR_PEOPLE_VISIBLE);
+    const more = restCount
+      ? `<button class="more-btn" data-action="show-more-year-people" data-cat="${cat}">もっと見る（＋${restCount}人）</button>`
+      : "";
+    const head = restCount
+      ? `${CAT_LABELS[cat]}（${list.length}人中${YEAR_PEOPLE_VISIBLE}人）`
+      : `${CAT_LABELS[cat]}（${list.length}人）`;
+    return `<div class="year-people-block"><h3>${esc(head)}</h3><div class="people-grid" data-year-grid="${cat}">${visible}</div>${more}</div>`;
+  }).join("");
+
+  const credit = `<p class="credit">日本語版Wikipedia の各「M月D日」記事から、同じ年に生まれた人を集めています（人気＝年間閲覧数の順）。</p>`;
+  return section(
+    "🎂",
+    `${year.year}年生まれの有名人`,
+    `${exactBlock}${catBlocks}${credit}`,
+    exact.length + rest.length,
+  );
+}
+
+/** 「もっと見る」で追加描画する残りカード（そのカテゴリの先頭 YEAR_PEOPLE_VISIBLE 件を除く）。 */
+export function yearPeopleMoreHtml(people: YearPerson[], cat: string): string {
+  return people
+    .filter((p) => categorize(p.desc) === cat)
+    .slice(YEAR_PEOPLE_VISIBLE)
+    .map(yearPersonCard)
+    .join("");
 }
 
 /* ---------- 動物・名馬 ---------- */
@@ -330,6 +393,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData 
     bornYearHtml(input, year) +
     peopleHtml(day.people) +
     oshiHtml(day.people, day.characters) +
+    sameYearHtml(input, day, year) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +
