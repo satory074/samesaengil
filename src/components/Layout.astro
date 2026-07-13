@@ -5,13 +5,17 @@ import { absUrl, siteLink } from "@/lib/url";
 interface Props {
   title?: string;
   description?: string;
+  /** 正規 URL（base 相対）。?d= のクエリ違いを別ページとしてインデックスさせないために使う。 */
+  canonical?: string;
 }
 const {
   title = "samesaengil — 同じ誕生日、なにがある？",
   description = "生年月日を入れるだけ。同じ誕生日の有名人・キャラ・記念日・星座まで、あなたの誕生日まるわかり。飲み会のネタにどうぞ。",
+  canonical = "/",
 } = Astro.props;
 
 const ogImage = absUrl("/favicon.svg");
+const canonicalUrl = absUrl(canonical);
 
 // Cloudflare Web Analytics — Cookie 不要のプライバシー配慮解析。PUBLIC_CF_BEACON_TOKEN が
 // あればビーコンを出力、未設定なら非出力（graceful）。トークンは公開値なのでリポジトリ変数で駆動。
@@ -26,9 +30,11 @@ const cfBeaconToken = import.meta.env.PUBLIC_CF_BEACON_TOKEN;
     <meta name="color-scheme" content="light dark" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" type="image/svg+xml" href={siteLink("/favicon.svg")} />
 
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />

@@ -4,7 +4,8 @@ import type { Character, DayData, Person, YearData } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
-import { charactersMoreHtml, errorHtml, loadingHtml, resultHtml, peopleMoreHtml } from "./render";
+import { errorHtml, loadingHtml, resultHtml } from "./render";
+import { wireMoreButtons } from "./more";
 
 interface Refs {
   year: HTMLSelectElement;
@@ -162,16 +163,10 @@ export function boot(root: HTMLElement): void {
       window.open(url, "_blank", "noopener");
     } else if (action === "copy-link") {
       void copyLink(target);
-    } else if (action === "show-more-people") {
-      const grid = target.closest(".section")?.querySelector("[data-people-grid]");
-      if (grid && lastPeople.length) grid.insertAdjacentHTML("beforeend", peopleMoreHtml(lastPeople));
-      target.remove();
-    } else if (action === "show-more-chars") {
-      const list = target.closest(".section")?.querySelector("[data-char-list]");
-      if (list && lastCharacters.length) list.insertAdjacentHTML("beforeend", charactersMoreHtml(lastCharacters));
-      target.remove();
     }
   });
+  // 「もっと見る」は日別ページと共用の実装（more.ts）。
+  wireMoreButtons(root, { people: () => lastPeople, characters: () => lastCharacters });
 
   async function copyLink(btn: HTMLElement): Promise<void> {
     try {

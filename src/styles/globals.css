@@ -524,6 +524,21 @@ a:hover {
   min-width: 46px;
 }
 
+/* ---- 日別ページへの導線 ---- */
+.daylink {
+  text-align: center;
+  margin: 16px 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+.daylink a {
+  color: var(--purple);
+  text-decoration: none;
+}
+.daylink a:hover {
+  text-decoration: underline;
+}
+
 /* ---- 共有 ---- */
 .share-row {
   display: flex;

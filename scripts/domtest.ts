@@ -242,6 +242,8 @@ function submit(dom: JSDOM, root: Element): void {
   assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年")), "年データ無しなら年セクションは出ない");
 
   moreBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  // 展開は非同期（日別ページでは fetch を挟むため more.ts が Promise を await する）。
+  await tick();
   await tick();
   assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 35, "クリックで35枚に増える");
   assert(!result.querySelector('[data-action="show-more-people"]'), "ボタンは消える");

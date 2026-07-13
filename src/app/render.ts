@@ -16,8 +16,11 @@ import {
   warekiOf,
   weekdayOf,
   zodiacOf,
+  type MD,
   type YMD,
 } from "../lib/almanac";
+import { dayKeyOf } from "../lib/days";
+import { siteLink } from "../lib/url";
 
 export function esc(s: string): string {
   return s
@@ -261,6 +264,14 @@ export function anniversaryHtml(anniversaries: Anniversary[], events: DayEvent[]
   return section("📅", "今日は何の日", body);
 }
 
+/* ---------- 日別ページへの導線（トップ → /day/MM-DD） ---------- */
+export function dayPageLinkHtml(md: MD): string {
+  const key = dayKeyOf(md);
+  return `<p class="daylink"><a href="${esc(siteLink(`/day/${key}/`))}">📖 ${md.month}月${
+    md.day
+  }日の詳細ページ（年なしでも見られる）→</a></p>`;
+}
+
 /* ---------- 共有 ---------- */
 export function shareHtml(): string {
   return section(
@@ -298,6 +309,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData 
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +
+    dayPageLinkHtml(input) +
     shareHtml()
   );
 }

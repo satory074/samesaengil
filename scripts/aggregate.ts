@@ -14,6 +14,7 @@ import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { fetchPageMeta, type PageMeta } from "./sources/jawikiPageMeta";
 import { fetchPageviews, last12Months } from "./sources/jawikiPageviews";
 import { mapLimit } from "./lib/util";
+import { allDays } from "../src/lib/days";
 import charactersSeed from "../src/data/characters.json";
 import fanwebSeed from "../src/data/characters-fanweb.json";
 
@@ -30,13 +31,6 @@ interface State {
 const PV_WINDOW = last12Months(new Date());
 
 const pad = (n: number): string => String(n).padStart(2, "0");
-const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-function allDays(): { month: number; day: number }[] {
-  const out: { month: number; day: number }[] = [];
-  for (let m = 1; m <= 12; m++) for (let d = 1; d <= DAYS_IN_MONTH[m - 1]; d++) out.push({ month: m, day: d });
-  return out;
-}
 
 function readJson<T>(p: string, fallback: T): T {
   try {
