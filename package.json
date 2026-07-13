@@ -13,13 +13,16 @@
     "aggregate": "tsx scripts/aggregate.ts",
     "aggregate:years": "tsx scripts/aggregateYears.ts",
     "import:characters": "tsx scripts/importFanwebCharacters.ts",
-    "test": "tsx scripts/smoketest.ts && tsx scripts/domtest.ts"
+    "test": "tsx scripts/smoketest.ts && tsx scripts/domtest.ts",
+    "import:font": "tsx scripts/buildFontSubset.ts"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
     "@astrojs/sitemap": "^3.7.3",
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.0.0",
     "astro": "^5.1.0",
+    "satori": "^0.26.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0"
   },
@@ -28,6 +31,7 @@
     "@types/node": "^25.9.0",
     "dotenv": "^16.4.7",
     "jsdom": "^29.1.1",
+    "subset-font": "^2.5.0",
     "tsx": "^4.19.2"
   }
 }

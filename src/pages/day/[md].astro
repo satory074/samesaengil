@@ -36,7 +36,7 @@ const body =
   anniversaryHtml(day.anniversaries, day.events);
 ---
 
-<Layout title={title} description={description} canonical={`/day/${key}/`}>
+<Layout title={title} description={description} canonical={`/day/${key}/`} image={`/og/${key}.png`}>
   <main id="day" data-key={key}>
     <h1 class="date-big"><em>{label}</em>生まれ</h1>
 
