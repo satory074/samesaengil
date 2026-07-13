@@ -21,8 +21,8 @@ const el = (type: string, style: Record<string, unknown>, children?: unknown): N
   props: { style, children },
 });
 
-/** 大見出し＋サブ見出しのカードを PNG で返す。 */
-export async function renderOgCard(headline: string, sub: string): Promise<Uint8Array> {
+/** 大見出し＋サブ見出しのカードを PNG で返す（Response の body に直接渡せる ArrayBuffer）。 */
+export async function renderOgCard(headline: string, sub: string): Promise<ArrayBuffer> {
   const markup = el(
     "div",
     {
@@ -62,5 +62,8 @@ export async function renderOgCard(headline: string, sub: string): Promise<Uint8
     height: 630,
     fonts: [{ name: "NotoSansJP", data: FONT, weight: 700, style: "normal" }],
   });
-  return new Uint8Array(new Resvg(svg).render().asPng());
+  // Buffer(Uint8Array) のままだと BodyInit に代入できない（TS 5.7 で Uint8Array が
+  // ArrayBufferLike ジェネリックになったため）。ArrayBuffer に切り出して返す。
+  const png = new Resvg(svg).render().asPng();
+  return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
 }
