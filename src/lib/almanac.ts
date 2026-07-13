@@ -176,3 +176,178 @@ export function ageOf(birth: YMD, today: YMD): number {
   if (mdNum(today.month, today.day) < mdNum(birth.month, birth.day)) age -= 1;
   return age;
 }
+
+/* ---------- ユリウス通日（以降の計算の土台） ---------- */
+// Date を使わないのは、タイムゾーンとうるう年をライブラリに委ねずテスト可能に保つため。
+// グレゴリオ暦のみ（明治改暦より前の日付は暦法が違うので厳密ではない）。
+
+export function ymdToJdn({ year, month, day }: YMD): number {
+  const a = Math.floor((14 - month) / 12);
+  const y = year + 4800 - a;
+  const m = month + 12 * a - 3;
+  return (
+    day +
+    Math.floor((153 * m + 2) / 5) +
+    365 * y +
+    Math.floor(y / 4) -
+    Math.floor(y / 100) +
+    Math.floor(y / 400) -
+    32045
+  );
+}
+
+export function jdnToYmd(jdn: number): YMD {
+  const a = jdn + 32044;
+  const b = Math.floor((4 * a + 3) / 146097);
+  const c = a - Math.floor((146097 * b) / 4);
+  const d = Math.floor((4 * c + 3) / 1461);
+  const e = c - Math.floor((1461 * d) / 4);
+  const m = Math.floor((5 * e + 2) / 153);
+  return {
+    year: 100 * b + d - 4800 + Math.floor(m / 10),
+    month: m + 3 - 12 * Math.floor(m / 10),
+    day: e - Math.floor((153 * m + 2) / 5) + 1,
+  };
+}
+
+/* ---------- 生まれた曜日 ---------- */
+
+export interface Weekday {
+  index: number; // 0=日曜
+  name: string; // 例: "水曜日"
+  emoji: string; // 五行になぞらえた絵文字
+}
+
+const WEEKDAYS: Weekday[] = [
+  { index: 0, name: "日曜日", emoji: "🌞" },
+  { index: 1, name: "月曜日", emoji: "🌙" },
+  { index: 2, name: "火曜日", emoji: "🔥" },
+  { index: 3, name: "水曜日", emoji: "💧" },
+  { index: 4, name: "木曜日", emoji: "🌳" },
+  { index: 5, name: "金曜日", emoji: "💰" },
+  { index: 6, name: "土曜日", emoji: "🪐" },
+];
+
+export function weekdayOf(ymd: YMD): Weekday {
+  // JDN 0 は月曜。+1 して 7 で割った余りが 0=日曜 になる。
+  return WEEKDAYS[(ymdToJdn(ymd) + 1) % 7];
+}
+
+/* ---------- 月齢（生まれた日の月の形） ---------- */
+
+export interface MoonPhase {
+  age: number; // 月齢（0〜29.5、概算・小数1桁）
+  phase: string; // 例: "満月"
+  emoji: string;
+}
+
+const SYNODIC = 29.530588853; // 朔望月
+const NEW_MOON_JDN = 2451550.1; // 2000-01-06 の新月
+
+const MOON_PHASES: { phase: string; emoji: string }[] = [
+  { phase: "新月", emoji: "🌑" },
+  { phase: "三日月", emoji: "🌒" },
+  { phase: "上弦の月", emoji: "🌓" },
+  { phase: "十三夜月", emoji: "🌔" },
+  { phase: "満月", emoji: "🌕" },
+  { phase: "十六夜月", emoji: "🌖" },
+  { phase: "下弦の月", emoji: "🌗" },
+  { phase: "有明月", emoji: "🌘" },
+];
+
+/** ±1日程度の精度の概算（UI では「概算」と明記すること）。 */
+export function moonAgeOf(ymd: YMD): MoonPhase {
+  const raw = (ymdToJdn(ymd) - NEW_MOON_JDN) % SYNODIC;
+  const age = raw < 0 ? raw + SYNODIC : raw;
+  const idx = Math.round((age / SYNODIC) * 8) % 8;
+  return { age: Math.round(age * 10) / 10, ...MOON_PHASES[idx] };
+}
+
+/* ---------- 生きた日数・キリ番 ---------- */
+
+export function daysLivedOf(birth: YMD, today: YMD): number {
+  return ymdToJdn(today) - ymdToJdn(birth);
+}
+
+export interface Milestone {
+  days: number; // 例: 10000（日目）
+  date: YMD; // その日が来る（来た）日付
+  daysUntil: number; // あと何日
+}
+
+const MILESTONES = [
+  1000, 2000, 3000, 5000, 7777, 10000, 11111, 15000, 20000, 22222, 25000, 30000, 33333, 35000, 40000,
+];
+
+/** まだ迎えていない直近のキリ番記念日。全て過ぎていれば null。 */
+export function nextMilestoneOf(birth: YMD, today: YMD): Milestone | null {
+  const lived = daysLivedOf(birth, today);
+  const days = MILESTONES.find((m) => m > lived);
+  if (days == null) return null;
+  return { days, date: jdnToYmd(ymdToJdn(birth) + days), daysUntil: days - lived };
+}
+
+/* ---------- 数秘術（ライフパスナンバー） ---------- */
+
+export interface LifePath {
+  number: number; // 1-9 または マスターナンバー 11/22/33
+  label: string;
+}
+
+const LIFE_PATH_LABELS: Record<number, string> = {
+  1: "リーダー",
+  2: "サポーター",
+  3: "エンターテイナー",
+  4: "堅実家",
+  5: "自由人",
+  6: "愛情家",
+  7: "探究者",
+  8: "実力者",
+  9: "賢者",
+  11: "直感の人",
+  22: "大きな夢の人",
+  33: "愛と奉仕の人",
+};
+
+const digitSum = (n: number): number => {
+  let s = 0;
+  for (let v = n; v > 0; v = Math.floor(v / 10)) s += v % 10;
+  return s;
+};
+
+const isMaster = (n: number): boolean => n === 11 || n === 22 || n === 33;
+
+export function lifePathOf({ year, month, day }: YMD): LifePath {
+  let n = digitSum(year) + digitSum(month) + digitSum(day);
+  // マスターナンバー（11/22/33）はそこで止める。
+  while (n > 9 && !isMaster(n)) n = digitSum(n);
+  return { number: n, label: LIFE_PATH_LABELS[n] ?? "" };
+}
+
+/* ---------- 九星気学（本命星） ---------- */
+
+export interface Kyusei {
+  star: string; // 例: "五黄土星"
+  element: string; // 五行（水/土/木/金/火）
+}
+
+const KYUSEI: Kyusei[] = [
+  { star: "一白水星", element: "水" },
+  { star: "二黒土星", element: "土" },
+  { star: "三碧木星", element: "木" },
+  { star: "四緑木星", element: "木" },
+  { star: "五黄土星", element: "土" },
+  { star: "六白金星", element: "金" },
+  { star: "七赤金星", element: "金" },
+  { star: "八白土星", element: "土" },
+  { star: "九紫火星", element: "火" },
+];
+
+/** 本命星。九星の年は立春（2/4 頃）始まりなので、1/1〜2/3 生まれは前年で数える。 */
+export function kyuseiOf({ year, month, day }: YMD): Kyusei {
+  const y = month < 2 || (month === 2 && day <= 3) ? year - 1 : year;
+  let d = digitSum(y);
+  while (d > 9) d = digitSum(d);
+  const num = 11 - d > 9 ? 11 - d - 9 : 11 - d; // 1-9 に収める
+  return KYUSEI[num - 1];
+}

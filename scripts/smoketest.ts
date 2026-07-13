@@ -5,9 +5,17 @@ import {
   ageOf,
   birthFlowerOf,
   birthstoneOf,
+  daysLivedOf,
   etoOf,
   generationOf,
+  jdnToYmd,
+  kyuseiOf,
+  lifePathOf,
+  moonAgeOf,
+  nextMilestoneOf,
   warekiOf,
+  weekdayOf,
+  ymdToJdn,
   zodiacOf,
 } from "../src/lib/almanac";
 import {
@@ -109,6 +117,56 @@ function assert(cond: boolean, msg: string): void {
   assert(daysInMonth(2024, 2) === 29 && daysInMonth(2023, 2) === 28, "2月の日数");
   assert(isValidDate(2000, 2, 29) && !isValidDate(1900, 2, 29) && !isValidDate(2000, 2, 30), "isValidDate");
   console.log("[share] OK");
+}
+
+// ---- 7) ユリウス通日・曜日・月齢・キリ番・数秘・九星 ----
+{
+  // JDN（基準: 2000-01-01 = 2451545）と逆変換の round-trip
+  assert(ymdToJdn({ year: 2000, month: 1, day: 1 }) === 2451545, "JDN 基準 2000-01-01");
+  for (const ymd of [
+    { year: 1995, month: 3, day: 15 },
+    { year: 2000, month: 2, day: 29 },
+    { year: 1900, month: 1, day: 1 },
+    { year: 2026, month: 12, day: 31 },
+  ]) {
+    const back = jdnToYmd(ymdToJdn(ymd));
+    assert(JSON.stringify(back) === JSON.stringify(ymd), `JDN round-trip ${JSON.stringify(ymd)}`);
+  }
+
+  // 曜日（Date を使わず JDN から）
+  assert(weekdayOf({ year: 1995, month: 3, day: 15 }).name === "水曜日", "1995-03-15 は水曜");
+  assert(weekdayOf({ year: 2000, month: 2, day: 29 }).name === "火曜日", "2000-02-29 は火曜（うるう境界）");
+  assert(weekdayOf({ year: 2000, month: 1, day: 1 }).name === "土曜日", "2000-01-01 は土曜");
+
+  // 月齢（新月の日は「新月」に丸まる）
+  assert(moonAgeOf({ year: 2000, month: 1, day: 6 }).phase === "新月", "2000-01-06 は新月");
+  const full = moonAgeOf({ year: 2000, month: 1, day: 21 });
+  assert(full.phase === "満月", "2000-01-21 は満月");
+  assert(full.age >= 0 && full.age < 29.6, "月齢は 0〜29.5 の範囲");
+
+  // 生きた日数・キリ番
+  const birth = { year: 1995, month: 3, day: 15 };
+  const today = { year: 2026, month: 7, day: 13 };
+  assert(daysLivedOf(birth, today) === 11443, "1995-03-15 → 2026-07-13 は 11443 日目");
+  const ms = nextMilestoneOf(birth, today);
+  assert(ms?.days === 15000, "次のキリ番は 15000 日目");
+  assert(ms?.daysUntil === 15000 - 11443, "キリ番までの残り日数");
+  assert(ymdToJdn(ms!.date) === ymdToJdn(birth) + 15000, "キリ番の日付が JDN 逆変換と一致");
+  assert(nextMilestoneOf(birth, birth)?.days === 1000, "生まれた当日なら 1000 日目が次");
+
+  // 数秘（マスターナンバーは維持）
+  assert(lifePathOf({ year: 1995, month: 3, day: 15 }).number === 33, "1995-03-15 は 33（マスター）");
+  assert(lifePathOf({ year: 2001, month: 6, day: 2 }).number === 11, "2001-06-02 は 11（マスター）");
+  assert(lifePathOf({ year: 2000, month: 1, day: 1 }).number === 4, "2000-01-01 は 4");
+  assert(lifePathOf({ year: 1995, month: 3, day: 15 }).label.length > 0, "ライフパスにラベルがある");
+
+  // 九星（立春 2/4 が年の境目＝ここが本質）
+  assert(kyuseiOf({ year: 1995, month: 3, day: 15 }).star === "五黄土星", "1995 生まれは五黄土星");
+  assert(kyuseiOf({ year: 2000, month: 2, day: 4 }).star === "九紫火星", "2000-02-04（立春以降）は九紫火星");
+  assert(kyuseiOf({ year: 2000, month: 2, day: 3 }).star === "一白水星", "2000-02-03（立春前）は前年扱い＝一白水星");
+  assert(kyuseiOf({ year: 2000, month: 1, day: 1 }).star === "一白水星", "元日も前年扱い");
+  assert(kyuseiOf({ year: 1999, month: 12, day: 31 }).star === "一白水星", "1999 生まれは一白水星");
+  console.log("[jdn/weekday/moon/milestone/lifepath/kyusei] OK");
 }
 
 console.log("\n✅ smoketest passed");

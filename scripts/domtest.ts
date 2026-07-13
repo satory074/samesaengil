@@ -109,6 +109,15 @@ function submit(dom: JSDOM, root: Element): void {
   assert(facts.some((f) => f?.includes("うお座")), `星座うお座が出る（実際: ${facts.join(" / ")}）`);
   assert(facts.some((f) => f?.includes("アクアマリン")), "誕生石アクアマリン");
 
+  // 小ネタセクション（1995-03-15 は水曜・五黄土星。日数系は今日に依存するので値は見ない）
+  assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("誕生日の小ネタ")), "小ネタセクション");
+  assert(facts.some((f) => f?.includes("水曜日")), `1995-03-15 は水曜（実際: ${facts.join(" / ")}）`);
+  assert(facts.some((f) => f?.includes("五黄土星")), "九星 五黄土星");
+  assert(
+    [...result.querySelectorAll(".fact .k")].some((k) => k.textContent === "生まれてから"),
+    "生きた日数のセルがある",
+  );
+
   // 有名人カード
   const pcards = result.querySelectorAll(".pcard");
   assert(pcards.length === 2, `有名人カード2件（実際: ${pcards.length}）`);

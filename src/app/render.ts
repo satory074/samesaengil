@@ -5,9 +5,15 @@ import {
   ageOf,
   birthFlowerOf,
   birthstoneOf,
+  daysLivedOf,
   etoOf,
   generationOf,
+  kyuseiOf,
+  lifePathOf,
+  moonAgeOf,
+  nextMilestoneOf,
   warekiOf,
+  weekdayOf,
   zodiacOf,
   type YMD,
 } from "../lib/almanac";
@@ -48,7 +54,7 @@ export function summaryHtml(input: YMD, today: YMD): string {
   const gen = generationOf(input.year);
   const age = ageOf(input, today);
 
-  const facts: { k: string; v: string; sub?: string }[] = [
+  const facts: Fact[] = [
     { k: "いまの年齢", v: age >= 0 ? `${age}歳` : "—", sub: wareki ? `${wareki.label}生まれ` : undefined },
     { k: "星座", v: `${z.emoji} ${z.name}`, sub: z.range },
     { k: "干支", v: `${eto.emoji} ${eto.name}年`, sub: `${eto.animal}` },
@@ -57,6 +63,45 @@ export function summaryHtml(input: YMD, today: YMD): string {
     { k: "世代", v: gen || "—" },
   ];
 
+  return section("✨", "あなたの誕生日プロフィール", factsGrid(facts));
+}
+
+/* ---------- 誕生日の小ネタ ---------- */
+export function funFactsHtml(input: YMD, today: YMD): string {
+  const wd = weekdayOf(input);
+  const moon = moonAgeOf(input);
+  const lived = daysLivedOf(input, today);
+  const next = nextMilestoneOf(input, today);
+  const life = lifePathOf(input);
+  const kyusei = kyuseiOf(input);
+
+  const facts: Fact[] = [
+    { k: "生まれた曜日", v: `${wd.emoji} ${wd.name}` },
+    { k: "生まれた日の月", v: `${moon.emoji} ${moon.phase}`, sub: `月齢 ${moon.age}（概算）` },
+    { k: "生まれてから", v: lived >= 0 ? `${comma(lived)}日目` : "—" },
+    {
+      k: "次のキリ番記念日",
+      v: next ? `${comma(next.days)}日目` : "—",
+      sub: next ? `${next.date.year}/${next.date.month}/${next.date.day}・あと${comma(next.daysUntil)}日` : undefined,
+    },
+    { k: "数秘（ライフパス）", v: String(life.number), sub: life.label },
+    { k: "九星（本命星）", v: kyusei.star, sub: `五行は「${kyusei.element}」` },
+  ];
+  return section("🔮", "誕生日の小ネタ", factsGrid(facts));
+}
+
+interface Fact {
+  k: string;
+  v: string;
+  sub?: string;
+}
+
+/** 3桁区切り（toLocaleString は環境で揺れるので自前）。 */
+function comma(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function factsGrid(facts: Fact[]): string {
   const cells = facts
     .map(
       (f) =>
@@ -65,7 +110,7 @@ export function summaryHtml(input: YMD, today: YMD): string {
         }</div>`,
     )
     .join("");
-  return section("✨", "あなたの誕生日プロフィール", `<div class="summary-grid">${cells}</div>`);
+  return `<div class="summary-grid">${cells}</div>`;
 }
 
 /* ---------- 有名人 ---------- */
@@ -195,6 +240,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData): string {
   return (
     headerHtml(input) +
     summaryHtml(input, today) +
+    funFactsHtml(input, today) +
     peopleHtml(day.people) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
