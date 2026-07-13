@@ -524,6 +524,17 @@ a:hover {
   min-width: 46px;
 }
 
+/* ---- 推し（K-POP・VTuber） ---- */
+.oshi-block + .oshi-block {
+  margin-top: 18px;
+}
+.oshi-block h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
 /* ---- 日別ページへの導線 ---- */
 .daylink {
   text-align: center;

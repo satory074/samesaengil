@@ -9,7 +9,7 @@ import path from "node:path";
 import Layout from "@/components/Layout.astro";
 import { allDays, dayKeyOf, dayLabel, parseDayKey } from "@/lib/days";
 import type { DayData } from "@/lib/types";
-import { anniversaryHtml, animalsHtml, charactersHtml, peopleHtml } from "@/app/render";
+import { anniversaryHtml, animalsHtml, charactersHtml, oshiHtml, peopleHtml } from "@/app/render";
 
 export function getStaticPaths() {
   return allDays().map((md) => ({ params: { md: dayKeyOf(md) } }));
@@ -31,6 +31,7 @@ const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => currentYe
 
 const body =
   peopleHtml(day.people) +
+  oshiHtml(day.people, day.characters) +
   animalsHtml(day.animals) +
   charactersHtml(day.characters) +
   anniversaryHtml(day.anniversaries, day.events);

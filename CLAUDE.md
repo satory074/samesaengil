@@ -65,6 +65,7 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
 - `src/app/share.ts`: `?d=` の encode/decode・`isValidDate`/`daysInMonth`/`isLeap` の純関数（DOM 非依存・テスト対象）。
 - `src/lib/almanac.ts`: 星座/誕生石/誕生花/干支/和暦/世代/年齢 ＋ **ユリウス通日(JDN)ベース**の曜日/月齢/生誕日数/キリ番記念日/数秘ライフパス/九星の純関数。**`Date` を内部で使わない**（`ageOf`/`daysLivedOf` は基準日を引数で受ける）＝テスト可能。
 - `src/lib/days.ts`: `allDays()`/`dayKeyOf()`/`parseDayKey()`。`getStaticPaths` と `aggregate.ts` で共有。
+- `src/lib/oshi.ts`: 「推し」セクションの**再カット**（新ソース無し）。VTuber は既に `characters`（fanweb の作品名 `にじさんじ`/`ホロライブプロダクション`/`ぶいすぽっ！`/`バーチャルYouTuber`＝表記ゆれで `Youtuber` もある）に、K-POP アイドルは既に `people` の肩書き（例「アイドル、歌手（BTS）」）に入っているが、1日最大1932件のキャラ一覧・200人超の有名人一覧に埋もれている。それを拾い直すだけ＝**スクレイプもデータ増加もしない**。元の一覧からは除外しない（推しは「ハイライト」で、全件は元セクションで見られる）。**K-POP グループ名のラテン文字は単語境界を要求する**（でないと `Aivery` が `IVE` に、`KARAOKE` が `KARA` に部分一致する）。
 
 ## 重要な決定・ハマりどころ
 

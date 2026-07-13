@@ -28,7 +28,8 @@ import {
   isValidDate,
 } from "../src/app/share";
 import { eventOnBirthday, eventsForMonth, songForBirthday } from "../src/lib/year";
-import type { YearData } from "../src/lib/types";
+import { kpopOf, vtubersOf } from "../src/lib/oshi";
+import type { Character, Person, YearData } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -209,6 +210,43 @@ function assert(cond: boolean, msg: string): void {
   const march = eventsForMonth(y, { month: 3, day: 15 });
   assert(march.length === 1 && march[0].text === "地下鉄サリン事件", "生まれた月のできごと（誕生日ぴったり分は除く）");
   console.log("[year] OK");
+}
+
+// ---- 9) 推し（K-POP・VTuber の再カット） ----
+{
+  const person = (name: string, desc: string): Person => ({
+    name,
+    nameEn: "",
+    year: 2000,
+    desc,
+    photo: "",
+    url: "",
+    jaKnown: true,
+    fame: 1,
+  });
+  const kpop = kpopOf([
+    person("JUNG KOOK", "アイドル、歌手（BTS）"),
+    person("ユジン", "アイドル（IVE、元IZ*ONE）"),
+    person("シュファ", "アイドル（(G)I-DLE）"),
+    // 部分一致の罠: "Aivery" の中の "IVE"、"KARAOKE" の中の "KARA" を拾ってはいけない
+    person("諸橋姫向", "アイドル（Aivery、元NGT48）"),
+    person("誰か", "KARAOKE 芸人"),
+    person("山田太郎", "俳優"),
+  ]);
+  assert(kpop.length === 3, `K-POP は3人（実際: ${kpop.map((p) => p.name).join(",")}）`);
+  assert(!kpop.some((p) => p.name === "諸橋姫向"), "Aivery を IVE と誤検出しない（単語境界）");
+  assert(!kpop.some((p) => p.name === "誰か"), "KARAOKE を KARA と誤検出しない");
+
+  const chars: Character[] = [
+    { name: "叶", work: "にじさんじ" },
+    { name: "アズマリム", work: "バーチャルYouTuber" },
+    { name: "渋谷ハル", work: "バーチャルYoutuber" }, // 表記ゆれ（小文字 t）
+    { name: "モンキー・D・ルフィ", work: "ONE PIECE" },
+  ];
+  const v = vtubersOf(chars);
+  assert(v.length === 3, `VTuber は3人（実際: ${v.length}）`);
+  assert(!v.some((c) => c.work === "ONE PIECE"), "普通のキャラは含めない");
+  console.log("[oshi] OK");
 }
 
 console.log("\n✅ smoketest passed");

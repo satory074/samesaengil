@@ -20,6 +20,7 @@ import {
   type YMD,
 } from "../lib/almanac";
 import { dayKeyOf } from "../lib/days";
+import { kpopOf, vtubersOf } from "../lib/oshi";
 import { siteLink } from "../lib/url";
 
 export function esc(s: string): string {
@@ -209,6 +210,38 @@ function personCard(p: Person): string {
     : `<div class="pcard">${inner}</div>`;
 }
 
+/* ---------- 推し（K-POPアイドル・VTuber） ---------- */
+const KPOP_VISIBLE = 12;
+const VTUBER_VISIBLE = 24;
+
+/**
+ * 有名人一覧とキャラ一覧に埋もれている「推し」を拾い直すハイライト。
+ * 元のセクションからは除いていないので、全件はそちらで見られる。
+ */
+export function oshiHtml(people: Person[], chars: Character[]): string {
+  const kpop = kpopOf(people);
+  const vtubers = vtubersOf(chars);
+  if (kpop.length === 0 && vtubers.length === 0) return "";
+
+  const kpopBlock = kpop.length
+    ? `<div class="oshi-block"><h3>K-POPアイドル${
+        kpop.length > KPOP_VISIBLE ? `（上位${KPOP_VISIBLE}人／${kpop.length}人）` : `（${kpop.length}人）`
+      }</h3><div class="people-grid">${kpop.slice(0, KPOP_VISIBLE).map(personCard).join("")}</div></div>`
+    : "";
+
+  const vtuberBlock = vtubers.length
+    ? `<div class="oshi-block"><h3>VTuber${
+        vtubers.length > VTUBER_VISIBLE ? `（先頭${VTUBER_VISIBLE}人／${vtubers.length}人）` : `（${vtubers.length}人）`
+      }</h3><div class="char-list">${vtubers.slice(0, VTUBER_VISIBLE).map(charChip).join("")}</div>${
+        vtubers.length > VTUBER_VISIBLE
+          ? `<p class="credit">残りは「同じ誕生日のキャラ」の一覧に含まれています。</p>`
+          : ""
+      }</div>`
+    : "";
+
+  return section("🎙", "同じ誕生日の推し", `${kpopBlock}${vtuberBlock}`, kpop.length + vtubers.length);
+}
+
 /* ---------- 動物・名馬 ---------- */
 export function animalsHtml(animals: Person[]): string {
   if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはセクションごと非表示
@@ -306,6 +339,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData 
     funFactsHtml(input, today) +
     bornYearHtml(input, year) +
     peopleHtml(day.people) +
+    oshiHtml(day.people, day.characters) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +
