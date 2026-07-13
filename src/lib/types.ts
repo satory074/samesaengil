@@ -57,6 +57,38 @@ export interface DayData {
   updatedAt: string;
 }
 
+/** その年のできごと（日付つき）。 */
+export interface YearEvent {
+  month: number;
+  day: number;
+  text: string;
+}
+
+/** オリコン週間シングルチャート第1位（1週ぶん）。 */
+export interface ChartWeek {
+  /** 集計発表日（この日付の週の1位）。 */
+  month: number;
+  day: number;
+  title: string;
+  artist: string;
+  /** jawiki の曲記事 URL（無ければ空文字）。 */
+  url: string;
+}
+
+/** 1 年ぶんの集約データ（public/data/years/YYYY.json）。 */
+export interface YearData {
+  year: number;
+  /** 日付つきできごと（全月）。 */
+  events: YearEvent[];
+  /** 「主な出来事」節（あれば）。 */
+  highlights: string[];
+  /** その年のオリコン週間1位。1968年より前・テンプレ欠損は []。 */
+  chartWeeks: ChartWeek[];
+  /** 前年の最終週の1位（年始生まれが「生まれた週の1位」を引けるように）。 */
+  prevYearLast: ChartWeek | null;
+  updatedAt: string;
+}
+
 /** 静的キャラ JSON（src/data/characters.json）の 1 件。 */
 export interface CharacterSeed {
   name: string;

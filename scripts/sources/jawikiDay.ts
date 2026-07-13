@@ -2,6 +2,7 @@
 // 節 index はページ毎に異なるため、必ず section 一覧から名前で引く。
 import type { Anniversary, DayEvent } from "../../src/lib/types";
 import { fetchJson } from "../lib/util";
+import { cleanWikitext } from "../lib/wikitext";
 
 /** 「誕生日」節の 1 行（人物・動物共通の生データ）。enrich 前。 */
 export interface JaRawBirth {
@@ -26,21 +27,6 @@ const API = "https://ja.wikipedia.org/w/api.php";
 
 function pageTitle(month: number, day: number): string {
   return `${month}月${day}日`;
-}
-
-/** wikitext のリンク・テンプレート・参照・装飾を落として素のテキストに。 */
-function cleanWikitext(s: string): string {
-  return s
-    .replace(/<ref[^>]*\/>/g, "")
-    .replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\{\{[^{}]*\}\}/g, "") // 単純なテンプレート（入れ子は1段のみ）
-    .replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, "$1") // [[a|b]] -> b
-    .replace(/\[\[([^\]]*)\]\]/g, "$1") // [[a]] -> a
-    .replace(/'''?/g, "") // 太字・斜体
-    .replace(/<[^>]+>/g, "") // 残った HTML タグ
-    .replace(/&nbsp;/g, " ")
-    .trim();
 }
 
 async function fetchSectionIndex(month: number, day: number): Promise<Map<string, string>> {

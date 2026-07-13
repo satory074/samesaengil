@@ -11,6 +11,7 @@
     "astro": "astro",
     "typecheck": "astro check",
     "aggregate": "tsx scripts/aggregate.ts",
+    "aggregate:years": "tsx scripts/aggregateYears.ts",
     "import:characters": "tsx scripts/importFanwebCharacters.ts",
     "test": "tsx scripts/smoketest.ts && tsx scripts/domtest.ts"
   },

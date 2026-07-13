@@ -27,6 +27,8 @@ import {
   isLeap,
   isValidDate,
 } from "../src/app/share";
+import { eventOnBirthday, eventsForMonth, songForBirthday } from "../src/lib/year";
+import type { YearData } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -167,6 +169,46 @@ function assert(cond: boolean, msg: string): void {
   assert(kyuseiOf({ year: 2000, month: 1, day: 1 }).star === "一白水星", "元日も前年扱い");
   assert(kyuseiOf({ year: 1999, month: 12, day: 31 }).star === "一白水星", "1999 生まれは一白水星");
   console.log("[jdn/weekday/moon/milestone/lifepath/kyusei] OK");
+}
+
+// ---- 8) 生まれた年（オリコン週間1位の選択・できごと抽出） ----
+{
+  const y: YearData = {
+    year: 1995,
+    events: [
+      { month: 1, day: 17, text: "兵庫県南部地震（阪神・淡路大震災）" },
+      { month: 3, day: 15, text: "誕生日ぴったりのできごと" },
+      { month: 3, day: 20, text: "地下鉄サリン事件" },
+      { month: 7, day: 1, text: "別の月のできごと" },
+    ],
+    highlights: ["阪神淡路大震災"],
+    chartWeeks: [
+      { month: 1, day: 2, title: "たぶんオーライ", artist: "SMAP", url: "" },
+      { month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "" },
+      { month: 3, day: 20, title: "その先の週", artist: "誰か", url: "" },
+    ],
+    prevYearLast: { month: 12, day: 26, title: "前年最終週の曲", artist: "前年", url: "" },
+    updatedAt: "",
+  };
+
+  // 「生まれた瞬間に1位だった曲」= 誕生日以前で最も近い週
+  assert(songForBirthday({ month: 3, day: 15 }, y)?.title === "ロビンソン", "3/15 は 3/13 付の週");
+  assert(songForBirthday({ month: 3, day: 13 }, y)?.title === "ロビンソン", "発表日当日はその週");
+  assert(songForBirthday({ month: 3, day: 19 }, y)?.title === "ロビンソン", "次の週の前日まではその週");
+  assert(songForBirthday({ month: 3, day: 20 }, y)?.title === "その先の週", "次の発表日からは次の週");
+  assert(songForBirthday({ month: 12, day: 31 }, y)?.title === "その先の週", "年末は最後の週");
+  // 年始生まれ（最初の週より前）は前年の最終週へフォールバック
+  assert(songForBirthday({ month: 1, day: 1 }, y)?.title === "前年最終週の曲", "1/1 は前年の最終週");
+  assert(songForBirthday({ month: 1, day: 2 }, y)?.title === "たぶんオーライ", "1/2 は当年の初週");
+  // チャートが無い年（1968年より前）は prevYearLast も無く null
+  assert(songForBirthday({ month: 5, day: 5 }, { ...y, chartWeeks: [], prevYearLast: null }) === null, "チャート無しは null");
+
+  // できごと
+  assert(eventOnBirthday(y, { month: 3, day: 15 }).length === 1, "誕生日ぴったりのできごと");
+  assert(eventOnBirthday(y, { month: 3, day: 16 }).length === 0, "該当なしは空");
+  const march = eventsForMonth(y, { month: 3, day: 15 });
+  assert(march.length === 1 && march[0].text === "地下鉄サリン事件", "生まれた月のできごと（誕生日ぴったり分は除く）");
+  console.log("[year] OK");
 }
 
 console.log("\n✅ smoketest passed");

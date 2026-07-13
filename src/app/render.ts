@@ -1,6 +1,7 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
-import type { Anniversary, Character, DayData, DayEvent, Person } from "../lib/types";
+import type { Anniversary, Character, DayData, DayEvent, Person, YearData } from "../lib/types";
+import { eventOnBirthday, eventsForMonth, songForBirthday } from "../lib/year";
 import {
   ageOf,
   birthFlowerOf,
@@ -111,6 +112,57 @@ function factsGrid(facts: Fact[]): string {
     )
     .join("");
   return `<div class="summary-grid">${cells}</div>`;
+}
+
+/* ---------- 生まれた年 ---------- */
+/** 生まれた月のできごとの表示上限。 */
+const MONTH_EVENTS_VISIBLE = 6;
+const HIGHLIGHTS_VISIBLE = 5;
+
+export function bornYearHtml(input: YMD, year: YearData | null): string {
+  if (!year) return "";
+  const song = songForBirthday(input, year);
+  const onBirthday = eventOnBirthday(year, input);
+  const monthEvents = eventsForMonth(year, input).slice(0, MONTH_EVENTS_VISIBLE);
+  const highlights = year.highlights.slice(0, HIGHLIGHTS_VISIBLE);
+  if (!song && !onBirthday.length && !monthEvents.length && !highlights.length) return "";
+
+  const songBlock = song
+    ? `<div class="song">
+        <div class="song-k">生まれた週のオリコン1位</div>
+        <div class="song-title">${
+          song.url
+            ? `<a href="${esc(song.url)}" target="_blank" rel="noopener">${esc(song.title)}</a>`
+            : esc(song.title)
+        }</div>
+        <div class="song-meta">${esc(song.artist)}${song.artist ? " ・ " : ""}${song.month}/${song.day} 付</div>
+      </div>`
+    : "";
+
+  const birthdayBlock = onBirthday.length
+    ? `<div class="year-block"><h3>あなたが生まれたその日</h3><ul class="year-events">${onBirthday
+        .map((e) => `<li>${esc(e.text)}</li>`)
+        .join("")}</ul></div>`
+    : "";
+
+  const monthBlock = monthEvents.length
+    ? `<div class="year-block"><h3>${input.month}月のできごと</h3><ul class="year-events">${monthEvents
+        .map((e) => `<li><span class="yr">${e.month}/${e.day}</span><span>${esc(e.text)}</span></li>`)
+        .join("")}</ul></div>`
+    : "";
+
+  const highlightBlock = highlights.length
+    ? `<div class="year-block"><h3>${year.year}年の主な出来事</h3><ul class="year-events">${highlights
+        .map((h) => `<li>${esc(h)}</li>`)
+        .join("")}</ul></div>`
+    : "";
+
+  const credit = `<p class="credit">出典: 日本語版Wikipedia「${year.year}年」／オリコン週間シングルチャート第1位</p>`;
+  return section(
+    "🎂",
+    `あなたが生まれた年（${year.year}年）`,
+    `${songBlock}${birthdayBlock}${monthBlock}${highlightBlock}${credit}`,
+  );
 }
 
 /* ---------- 有名人 ---------- */
@@ -235,12 +287,13 @@ export function errorHtml(msg: string): string {
   return `<p class="error-msg">${esc(msg)}</p>`;
 }
 
-/** 結果全体（データ取得後）。 */
-export function resultHtml(input: YMD, today: YMD, day: DayData): string {
+/** 結果全体（データ取得後）。year は取得失敗/未生成なら null（セクションごと非表示）。 */
+export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData | null = null): string {
   return (
     headerHtml(input) +
     summaryHtml(input, today) +
     funFactsHtml(input, today) +
+    bornYearHtml(input, year) +
     peopleHtml(day.people) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +

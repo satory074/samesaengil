@@ -1,7 +1,7 @@
 // DOM スモークテスト: boot → 入力 → fetch(スタブ) → セクション描画 → ?d= 同期 → 共有URL復元。
 // 実行: npx tsx scripts/domtest.ts
 import { JSDOM } from "jsdom";
-import type { DayData } from "../src/lib/types";
+import type { DayData, YearData } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -41,6 +41,29 @@ const SAMPLE: DayData = {
   updatedAt: "2026-06-30T00:00:00Z",
 };
 
+const SAMPLE_YEAR: YearData = {
+  year: 1995,
+  events: [
+    { month: 3, day: 15, text: "誕生日ぴったりのできごと" },
+    { month: 3, day: 20, text: "地下鉄サリン事件" },
+  ],
+  highlights: ["阪神淡路大震災"],
+  chartWeeks: [{ month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "https://ja.wikipedia.org/wiki/x" }],
+  prevYearLast: null,
+  updatedAt: "2026-06-30T00:00:00Z",
+};
+
+/** URL で per-day / per-year を出し分けるフェイク fetch。 */
+function fakeFetch(day: DayData, year: YearData | null = SAMPLE_YEAR) {
+  return async (url: string) => {
+    if (String(url).includes("/data/years/")) {
+      if (!year) return { ok: false, json: async () => ({}) } as unknown as Response;
+      return { ok: true, json: async () => year } as unknown as Response;
+    }
+    return { ok: true, json: async () => day } as unknown as Response;
+  };
+}
+
 function appHtml(): string {
   const opt = (n: number) => `<option value="${n}">${n}</option>`;
   const years = [1970, 1993, 1995, 2000, 2003].map(opt).join("");
@@ -67,8 +90,8 @@ function setupDom(url: string): JSDOM {
   g.history = dom.window.history;
   // navigator は Node 21+ では globalThis に読み取り専用で存在するため代入しない
   // （main.ts は navigator.clipboard を optional chaining で参照するだけで、テスト対象外）。
-  // fetch をスタブ（どの URL でも SAMPLE を返す）
-  g.fetch = async () => ({ ok: true, json: async () => SAMPLE }) as unknown as Response;
+  // fetch をスタブ（per-day は SAMPLE、per-year は SAMPLE_YEAR）
+  g.fetch = fakeFetch(SAMPLE);
   return dom;
 }
 
@@ -117,6 +140,14 @@ function submit(dom: JSDOM, root: Element): void {
     [...result.querySelectorAll(".fact .k")].some((k) => k.textContent === "生まれてから"),
     "生きた日数のセルがある",
   );
+
+  // 生まれた年（1995・3/15 → 3/13 付の週の1位）
+  assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年（1995年）")), "生まれた年セクション");
+  assert(result.querySelector(".song-title")!.textContent!.includes("ロビンソン"), "生まれた週のオリコン1位");
+  assert(result.querySelector(".song-meta")!.textContent!.includes("スピッツ"), "アーティスト名");
+  const yearTexts = [...result.querySelectorAll(".year-events li")].map((e) => e.textContent);
+  assert(yearTexts.some((t) => t?.includes("誕生日ぴったりのできごと")), "誕生日ぴったりのできごと");
+  assert(yearTexts.some((t) => t?.includes("阪神淡路大震災")), "その年の主な出来事");
 
   // 有名人カード
   const pcards = result.querySelectorAll(".pcard");
@@ -185,8 +216,8 @@ function submit(dom: JSDOM, root: Element): void {
     ],
   };
   const dom = setupDom("https://example.com/samesaengil/");
-  (globalThis as unknown as Record<string, unknown>).fetch = async () =>
-    ({ ok: true, json: async () => many }) as unknown as Response;
+  // 年データが無い年（範囲外＝404）でも壊れないことも同時に確認する。
+  (globalThis as unknown as Record<string, unknown>).fetch = fakeFetch(many, null);
   const { boot } = await import("../src/app/main");
   const root = dom.window.document.getElementById("app")!;
   boot(root as unknown as HTMLElement);
@@ -207,6 +238,8 @@ function submit(dom: JSDOM, root: Element): void {
   // 動物セクション
   assert(!!result.querySelector("section h2")!, "セクションがある");
   assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物セクションがある");
+  // 年データ 404 のときは「生まれた年」セクションごと非表示（壊れない）
+  assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年")), "年データ無しなら年セクションは出ない");
 
   moreBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
   await tick();

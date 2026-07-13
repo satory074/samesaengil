@@ -1,6 +1,6 @@
 // クライアント側のブート・状態・イベント配線。
 // フロー: 生年月日入力 → 該当日の JSON を fetch → 暦を計算 → セクション描画 → ?d= 同期。
-import type { Character, DayData, Person } from "../lib/types";
+import type { Character, DayData, Person, YearData } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
@@ -87,6 +87,29 @@ export function boot(root: HTMLElement): void {
     };
   }
 
+  /** 生まれた年のデータ。未生成の年（範囲外）は 404 になるので null のまま＝セクション非表示。 */
+  async function fetchYear(year: number): Promise<YearData | null> {
+    try {
+      const res = await fetch(siteLink(`/data/years/${year}.json`), { cache: "no-cache" });
+      if (!res.ok) return null;
+      return normalizeYear(year, (await res.json()) as Partial<YearData>);
+    } catch {
+      return null;
+    }
+  }
+
+  /** normalizeDay の鏡（古い JSON でも欠けたフィールドを既定値で補う）。 */
+  function normalizeYear(year: number, y: Partial<YearData> | null): YearData {
+    return {
+      year: y?.year ?? year,
+      events: y?.events ?? [],
+      highlights: y?.highlights ?? [],
+      chartWeeks: y?.chartWeeks ?? [],
+      prevYearLast: y?.prevYearLast ?? null,
+      updatedAt: y?.updatedAt ?? "",
+    };
+  }
+
   function syncUrl(input: YMD): void {
     try {
       history.replaceState(null, "", `${location.pathname}${encodeQuery(input)}`);
@@ -104,8 +127,10 @@ export function boot(root: HTMLElement): void {
     syncUrl(input);
     refs.result.innerHTML = loadingHtml();
     const key = dayKey(input.month, input.day);
-    const day = normalizeDay(key, await fetchDay(key));
-    refs.result.innerHTML = resultHtml(input, todayYMD(), day);
+    // 日と年は独立に取れるので並行に（レイテンシを重ねない）。
+    const [dayRaw, year] = await Promise.all([fetchDay(key), fetchYear(input.year)]);
+    const day = normalizeDay(key, dayRaw);
+    refs.result.innerHTML = resultHtml(input, todayYMD(), day, year);
     lastPeople = day.people;
     lastCharacters = day.characters;
     last = { input, firstPerson: day.people[0]?.name };

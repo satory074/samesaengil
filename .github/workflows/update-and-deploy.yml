@@ -40,6 +40,11 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 任意（無ければ英語descのまま）
 
+      # 生まれた年（YYYY年の出来事＋オリコン週間1位）。同じゲートの下に置く。
+      - name: Aggregate years
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run aggregate:years
+
       # 差分があれば生成データをコミット
       - name: Commit data
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
