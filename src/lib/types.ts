@@ -78,13 +78,17 @@ export interface ChartWeek {
 }
 
 /**
- * その年に生まれた有名人（日別データを生年で逆引きしたもの）。
+ * 同じ学年に生まれた有名人（日別データを学年＝年度で逆引きしたもの）。
  * 生成は scripts/aggregateYears.ts。Person より痩せているのは、年 JSON が
  * 毎回 fetch されるホットパスだから（nameEn/jaKnown は使わない、fame は並びに畳み込み済み）。
  */
 export interface YearPerson {
   name: string;
-  /** 誕生日。「6/18生まれ」の表示と、⭐（生年月日まで一致）との二重表示回避に使う。 */
+  /**
+   * 生年月日。学年は暦年をまたぐ（1995年度 = 1995/4/2〜1996/4/1）ので、
+   * 表示にも年が要る（「1996/2/10生まれ」＝早生まれだと分かる）。
+   */
+  year: number;
   month: number;
   day: number;
   /** 肩書き（表示のほか、カテゴリ分類の入力でもある。src/lib/peers.ts）。 */
@@ -104,7 +108,11 @@ export interface YearData {
   chartWeeks: ChartWeek[];
   /** 前年の最終週の1位（年始生まれが「生まれた週の1位」を引けるように）。 */
   prevYearLast: ChartWeek | null;
-  /** その年に生まれた有名人（人気順・カテゴリごとに上限つき）。 */
+  /**
+   * **この年を年度とする学年**（YYYY/4/2 〜 YYYY+1/4/1 生まれ）の有名人。人気順・カテゴリごとに上限つき。
+   * events/chartWeeks が「暦年 YYYY」なのに対し、people だけ**年度**であることに注意
+   * （日本の「同い年」＝同学年なので）。早生まれの人はこのファイルではなく前年のファイルを引く。
+   */
   people: YearPerson[];
   updatedAt: string;
 }

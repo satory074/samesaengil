@@ -29,7 +29,15 @@ import {
 } from "../src/app/share";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../src/lib/year";
 import { kpopOf, vtubersOf } from "../src/lib/oshi";
-import { categorize, exactMatchesOf, groupByCat, withoutExact } from "../src/lib/peers";
+import {
+  categorize,
+  cohortLabel,
+  cohortYearOf,
+  exactMatchesOf,
+  groupByCat,
+  isEarlyBirth,
+  withoutExact,
+} from "../src/lib/peers";
 import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
@@ -265,8 +273,19 @@ function assert(cond: boolean, msg: string): void {
   console.log("[oshi] OK");
 }
 
-// ---- 10) 同じ年に生まれた有名人（肩書きの分類・⭐ 完全一致） ----
+// ---- 10) 同じ学年の有名人（学年判定・肩書きの分類・⭐ 完全一致） ----
 {
+  // 学年（年度）は 4/2〜翌4/1。日本で「同い年」といえば同学年なので、暦年ではなくこれで切る。
+  assert(cohortYearOf({ year: 1995, month: 6, day: 18 }) === 1995, "6/18 は当年の学年");
+  assert(cohortYearOf({ year: 1995, month: 12, day: 31 }) === 1995, "12/31 は当年の学年");
+  assert(cohortYearOf({ year: 1995, month: 4, day: 2 }) === 1995, "4/2 は学年の初日");
+  // 4/1 生まれは早生まれ（年齢は誕生日の前日終了時に加算されるため、1つ上の学年に入る）
+  assert(cohortYearOf({ year: 1995, month: 4, day: 1 }) === 1994, "4/1 は早生まれ＝前の学年");
+  assert(cohortYearOf({ year: 1995, month: 3, day: 15 }) === 1994, "3/15 は早生まれ＝前の学年");
+  assert(cohortYearOf({ year: 1995, month: 1, day: 1 }) === 1994, "1/1 は早生まれ＝前の学年");
+  assert(isEarlyBirth({ month: 4, day: 1 }) && !isEarlyBirth({ month: 4, day: 2 }), "早生まれの境界は 4/1");
+  assert(cohortLabel(1995) === "1995年4月〜1996年3月", "学年の見出し");
+
   // 主業は肩書きの先頭に来るので、「最初にマッチした位置が早い方」で分類する。
   assert(categorize("元プロ野球選手") === "sports", "野球はスポーツ");
   assert(categorize("フィギュアスケート選手") === "sports", "スケートはスポーツ");
@@ -282,8 +301,9 @@ function assert(cond: boolean, msg: string): void {
   assert(categorize("陸上自衛官") === "other", "陸上自衛官をスポーツにしない");
   assert(categorize("陸上競技選手") === "sports", "陸上競技はスポーツ");
 
-  const yp = (name: string, desc: string, month = 6, day = 18): YearPerson => ({
+  const yp = (name: string, desc: string, year = 1995, month = 6, day = 18): YearPerson => ({
     name,
+    year,
     month,
     day,
     desc,

@@ -54,13 +54,15 @@ const SAMPLE: DayData = {
 
 const yp = (name: string, desc: string, day: number): YearPerson => ({
   name,
-  month: 1,
+  year: 1994,
+  month: 10,
   day,
   desc,
   photo: "",
   url: `https://ja.wikipedia.org/wiki/${name}`,
 });
 
+/** 暦年 1995 のファイル。できごと・オリコン用。people は空＝同学年の人はここから来ないことの証明。 */
 const SAMPLE_YEAR: YearData = {
   year: 1995,
   events: [
@@ -79,9 +81,31 @@ const SAMPLE_YEAR: YearData = {
     },
   ],
   prevYearLast: null,
+  people: [],
+  updatedAt: "2026-06-30T00:00:00Z",
+};
+
+/**
+ * 1994年度（1994/4/2〜1995/4/1）のファイル。入力 1995-03-15 は**早生まれ**なので、
+ * 同学年の有名人はこちら（暦年の1つ前のファイル）から来なければならない。
+ */
+const SAMPLE_COHORT: YearData = {
+  year: 1994,
+  events: [],
+  highlights: [],
+  chartWeeks: [],
+  prevYearLast: null,
   people: [
-    // ⭐ にも出る人。カテゴリ側からは除かれる（二重表示の防止）ことを確認するために入れておく。
-    { name: "同い年さん", month: 3, day: 15, desc: "俳優", photo: "", url: "https://ja.wikipedia.org/wiki/Onaidoshi" },
+    // ⭐ にも出る人（1995/3/15 生まれ＝早生まれなので 1994年度）。カテゴリ側からは除かれることを確認する。
+    {
+      name: "同い年さん",
+      year: 1995,
+      month: 3,
+      day: 15,
+      desc: "俳優",
+      photo: "",
+      url: "https://ja.wikipedia.org/wiki/Onaidoshi",
+    },
     // 芸能は 14 人＝初期12枚＋「もっと見る（＋2人）」、スポーツ 2 人＝ボタン無し
     ...Array.from({ length: 14 }, (_, i) => yp(`芸能${i}`, "俳優", i + 1)),
     ...Array.from({ length: 2 }, (_, i) => yp(`蹴球${i}`, "サッカー選手", i + 1)),
@@ -90,12 +114,16 @@ const SAMPLE_YEAR: YearData = {
   updatedAt: "2026-06-30T00:00:00Z",
 };
 
-/** URL で per-day / per-year を出し分けるフェイク fetch。 */
-function fakeFetch(day: DayData, year: YearData | null = SAMPLE_YEAR) {
+const SAMPLE_YEARS: Record<number, YearData> = { 1995: SAMPLE_YEAR, 1994: SAMPLE_COHORT };
+
+/** URL で per-day / per-year を出し分けるフェイク fetch（年は年ごとに別ファイルを返す）。 */
+function fakeFetch(day: DayData, years: Record<number, YearData> | null = SAMPLE_YEARS) {
   return async (url: string) => {
-    if (String(url).includes("/data/years/")) {
-      if (!year) return { ok: false, json: async () => ({}) } as unknown as Response;
-      return { ok: true, json: async () => year } as unknown as Response;
+    const m = /\/data\/years\/(\d{4})\.json/.exec(String(url));
+    if (m) {
+      const y = years?.[Number(m[1])];
+      if (!y) return { ok: false, json: async () => ({}) } as unknown as Response;
+      return { ok: true, json: async () => y } as unknown as Response;
     }
     return { ok: true, json: async () => day } as unknown as Response;
   };
@@ -199,16 +227,22 @@ function submit(dom: JSDOM, root: Element): void {
   const thumbs = [...result.querySelectorAll(".thumb")];
   assert(thumbs.some((t) => (t as HTMLElement).dataset.initials === "SP"), "イニシャルSP（Some Person）");
 
-  // 同じ年に生まれた有名人（1995年生まれ・カテゴリ別）
+  // 同じ学年の有名人。1995-03-15 は早生まれなので学年は 1994年度＝人は 1994.json（暦年の1つ前）から来る。
+  // SAMPLE_YEAR(1995) の people は空なので、カードが出ていること自体が「学年のファイルを引いた」証拠。
   assert(
-    [...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("1995年生まれの有名人")),
-    "同い年セクション",
+    [...result.querySelectorAll("h2")].some((h) =>
+      h.textContent!.includes("同じ学年の有名人（1994年4月〜1995年3月生まれ）"),
+    ),
+    `早生まれは前の学年（実際: ${[...result.querySelectorAll("h2")].map((h) => h.textContent).join(" / ")}）`,
   );
   const exactBlock = result.querySelector(".year-people-block.exact")!;
   assert(!!exactBlock, "⭐ 生年月日まで完全に同じブロックがある");
   assert(exactBlock.querySelectorAll(".pcard").length === 1, "⭐ は1人（同い年さん）");
   assert(exactBlock.querySelector(".pcard .name")!.textContent === "同い年さん", "⭐ の中身");
-  assert(exactBlock.querySelector(".pcard .meta")!.textContent!.includes("3/15生まれ"), "⭐ カードは誕生日を出す");
+  assert(
+    exactBlock.querySelector(".pcard .meta")!.textContent!.includes("1995/3/15生まれ"),
+    "⭐ カードは生年月日を出す（学年は暦年をまたぐので年まで）",
+  );
   // ⭐ に出した人はカテゴリ側に出ない（同じセクション内で二重に出さない）
   const sameYearSection = result.querySelector(".year-people-block")!.closest("section")!;
   const dupes = [...sameYearSection.querySelectorAll(".pcard .name")].filter((n) => n.textContent === "同い年さん");

@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ChartWeek, DayData, YearData, YearPerson } from "../src/lib/types";
 import { allDays } from "../src/lib/days";
-import { categorize, type PersonCat } from "../src/lib/peers";
+import { categorize, cohortYearOf, type PersonCat } from "../src/lib/peers";
 import { fetchYearInfo } from "./sources/jawikiYear";
 import { fetchOriconYear, ORICON_FIRST_YEAR } from "./sources/jawikiOricon";
 import { attachSpotify, hasSpotifyCreds, type SpotifyStats } from "./sources/spotify";
@@ -64,27 +64,40 @@ function selectYears(lastYear: number): number[] {
 }
 
 /**
- * 日別 JSON（366ファイル）を生年で逆引きして「その年に生まれた有名人」を作る。
+ * 日別 JSON（366ファイル）を**学年（年度。4/2〜翌4/1）**で逆引きして「同じ学年の有名人」を作る。
  * **API 呼び出しは 1 件も無い**（名前・肩書き・写真・人気は日別データが既に持っている）。
  * したがって日別 → 年 の順に実行する必要がある（CI もその順）。
+ *
+ * キーは暦年ではなく年度なので、YYYY.json の people は「YYYY/4/2〜YYYY+1/4/1 生まれ」＝
+ * 早生まれ（翌年の1〜3月生まれ）が混ざる。events/chartWeeks は暦年のままであることに注意。
  */
-function buildPeopleByYear(): Map<number, YearPerson[]> {
+function buildCohortPeople(): Map<number, YearPerson[]> {
   type Ranked = YearPerson & { fame: number };
-  const byYear = new Map<number, Ranked[]>();
+  const byCohort = new Map<number, Ranked[]>();
 
   for (const { month, day } of allDays()) {
     const key = `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const d = readJson<DayData | null>(path.join(DAYS_DIR, `${key}.json`), null);
     for (const p of d?.people ?? []) {
-      if (!p.year) continue; // 生年非公表（year:0）は年で引けない
-      const list = byYear.get(p.year) ?? [];
-      list.push({ name: p.name, month, day, desc: p.desc, photo: p.photo, url: p.url, fame: p.fame ?? 0 });
-      byYear.set(p.year, list);
+      if (!p.year) continue; // 生年非公表（year:0）は学年を決められない
+      const cohort = cohortYearOf({ year: p.year, month, day });
+      const list = byCohort.get(cohort) ?? [];
+      list.push({
+        name: p.name,
+        year: p.year,
+        month,
+        day,
+        desc: p.desc,
+        photo: p.photo,
+        url: p.url,
+        fame: p.fame ?? 0,
+      });
+      byCohort.set(cohort, list);
     }
   }
 
   const out = new Map<number, YearPerson[]>();
-  for (const [year, list] of byYear) {
+  for (const [year, list] of byCohort) {
     // 並びは aggregate.ts の rankPeople と同じ規範（人気＝年間閲覧数 → 写真あり → 名前）。
     list.sort(
       (a, b) =>
@@ -103,7 +116,15 @@ function buildPeopleByYear(): Map<number, YearPerson[]> {
       if (n >= PER_CAT_LIMIT) continue;
       seen.add(dedupeKey);
       perCat.set(cat, n + 1);
-      kept.push({ name: p.name, month: p.month, day: p.day, desc: p.desc, photo: p.photo, url: p.url });
+      kept.push({
+        name: p.name,
+        year: p.year,
+        month: p.month,
+        day: p.day,
+        desc: p.desc,
+        photo: p.photo,
+        url: p.url,
+      });
     }
     out.set(year, kept);
   }
@@ -132,14 +153,14 @@ async function run(): Promise<void> {
     `[years] ${years.length}年ぶんを生成します（並列${concurrency}）…${peopleOnly ? " ※people だけ差し替え" : ""}`,
   );
 
-  console.log("[years] 日別JSONを生年で逆引きしています…");
-  const peopleByYear = buildPeopleByYear();
+  console.log("[years] 日別JSONを学年（年度）で逆引きしています…");
+  const peopleByYear = buildCohortPeople();
   // 日別ファイルが読めない（未生成など）ときに people を空で上書きしてしまわないための検知。
   const invertOk = [...peopleByYear.values()].some((l) => l.length > 0);
   if (!invertOk) {
     console.warn("[years] ⚠ 日別JSONから有名人を1人も逆引きできませんでした（people は前回値を維持します）");
   } else {
-    console.log(`[years] 逆引き完了: ${peopleByYear.size}年ぶん（先に npm run aggregate で日別を更新しておくこと）`);
+    console.log(`[years] 逆引き完了: ${peopleByYear.size}学年ぶん（先に npm run aggregate で日別を更新しておくこと）`);
   }
 
   const spotifyCache = readJson<Record<string, string>>(SPOTIFY_PATH, {});

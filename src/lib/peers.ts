@@ -1,9 +1,36 @@
-// 「同じ年に生まれた有名人」用の分類・再カット（純関数・DOM 非依存＝tsx でテスト可能）。
+// 「同じ学年の有名人」用の学年判定・分類・再カット（純関数・DOM 非依存＝tsx でテスト可能）。
 //
 // 新しいソースは足さない: 日別 JSON（public/data/days/MM-DD.json）の people には既に
-// 生年・肩書き・写真・人気（年間閲覧数）が入っている。それを生年で逆引きしたものが
+// 生年・肩書き・写真・人気（年間閲覧数）が入っている。それを**学年（年度）**で逆引きしたものが
 // per-year JSON の people（生成は scripts/aggregateYears.ts）。ここはその表示側の道具だけ。
+import type { YMD } from "./almanac";
 import type { Person, YearPerson } from "./types";
+
+/* ---------- 学年（年度） ---------- */
+
+/**
+ * その生年月日が属する学年（＝年度。4/2 〜 翌4/1 が1学年）。
+ * 4月1日生まれは「早生まれ」で前の学年に入る（年齢は誕生日の前日終了時に加算されるため）。
+ *
+ *   1995/6/18 → 1995（1995/4/2〜1996/4/1）
+ *   1995/3/15 → 1994（1994/4/2〜1995/4/1）＝早生まれ
+ *   1995/4/1  → 1994（早生まれの境界）
+ *   1995/4/2  → 1995
+ */
+export function cohortYearOf(ymd: YMD): number {
+  const afterApr1 = ymd.month > 4 || (ymd.month === 4 && ymd.day >= 2);
+  return afterApr1 ? ymd.year : ymd.year - 1;
+}
+
+/** 学年の範囲の見出し（例: 1995 → "1995年4月〜1996年3月"）。境界の 4/1・4/2 は本文で補足する。 */
+export function cohortLabel(cohortYear: number): string {
+  return `${cohortYear}年4月〜${cohortYear + 1}年3月`;
+}
+
+/** 早生まれ（1/1〜4/1）＝暦年より1つ前の学年になる人。 */
+export function isEarlyBirth(ymd: { month: number; day: number }): boolean {
+  return ymd.month < 4 || (ymd.month === 4 && ymd.day === 1);
+}
 
 export type PersonCat = "ent" | "sports" | "music" | "culture" | "other";
 

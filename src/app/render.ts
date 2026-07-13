@@ -2,7 +2,16 @@
 // すべてのデータ由来テキストは esc() でエスケープする。
 import type { Anniversary, Character, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
-import { CAT_LABELS, CAT_ORDER, categorize, exactMatchesOf, groupByCat, withoutExact } from "../lib/peers";
+import {
+  CAT_LABELS,
+  CAT_ORDER,
+  categorize,
+  cohortLabel,
+  cohortYearOf,
+  exactMatchesOf,
+  groupByCat,
+  withoutExact,
+} from "../lib/peers";
 import {
   ageOf,
   birthFlowerOf,
@@ -245,27 +254,28 @@ export function oshiHtml(people: Person[], chars: Character[]): string {
   return section("🎙", "同じ誕生日の推し", `${kpopBlock}${vtuberBlock}`, kpop.length + vtubers.length);
 }
 
-/* ---------- 同じ年に生まれた有名人 ---------- */
+/* ---------- 同じ学年の有名人 ---------- */
 /** カテゴリブロックの初期表示件数。これを超える分は「もっと見る」で展開。 */
 const YEAR_PEOPLE_VISIBLE = 12;
 
 function yearPersonCard(p: YearPerson): string {
-  return cardHtml(p, `${p.month}/${p.day}生まれ`);
+  // 学年は暦年をまたぐので年まで出す（早生まれが見て分かる）。
+  return cardHtml(p, `${p.year}/${p.month}/${p.day}生まれ`);
 }
 
 /**
- * 同い年の有名人を、肩書きからのカテゴリ（芸能・スポーツ・音楽…）別に並べる。
+ * 同学年（年度＝4/2〜翌4/1 生まれ）の有名人を、肩書きからのカテゴリ別に並べる。
+ * cohort は入力の学年に対応する年ファイル（早生まれなら暦年の1つ前）。
  * 先頭には「生年月日まで完全に同じ」人を出し、その人はカテゴリ側からは除く（二重表示の防止）。
  */
-export function sameYearHtml(input: YMD, day: DayData, year: YearData | null): string {
-  if (!year) return ""; // 年 JSON が無い（範囲外）ならセクションごと非表示
+export function sameYearHtml(input: YMD, day: DayData, cohort: YearData | null): string {
   const exact = exactMatchesOf(day.people, input.year);
-  const rest = withoutExact(year.people, exact);
+  const rest = cohort ? withoutExact(cohort.people, exact) : [];
   if (exact.length === 0 && rest.length === 0) return "";
 
   const exactBlock = exact.length
     ? `<div class="year-people-block exact"><h3>⭐ 生年月日まで完全に同じ！（${exact.length}人）</h3><div class="people-grid">${exact
-        .map((p) => cardHtml(p, `${input.month}/${input.day}生まれ`))
+        .map((p) => cardHtml(p, `${input.year}/${input.month}/${input.day}生まれ`))
         .join("")}</div></div>`
     : "";
 
@@ -285,10 +295,11 @@ export function sameYearHtml(input: YMD, day: DayData, year: YearData | null): s
     return `<div class="year-people-block"><h3>${esc(head)}</h3><div class="people-grid" data-year-grid="${cat}">${visible}</div>${more}</div>`;
   }).join("");
 
-  const credit = `<p class="credit">日本語版Wikipedia の各「M月D日」記事から、同じ年に生まれた人を集めています（人気＝年間閲覧数の順）。</p>`;
+  const cohortYear = cohortYearOf(input);
+  const credit = `<p class="credit">学年は 4月2日〜翌4月1日 生まれで区切っています（4月1日生まれは早生まれ＝1つ上の学年）。出典は日本語版Wikipedia の各「M月D日」記事（人気＝年間閲覧数の順）。</p>`;
   return section(
-    "🎂",
-    `${year.year}年生まれの有名人`,
+    "🎓",
+    `同じ学年の有名人（${cohortLabel(cohortYear)}生まれ）`,
     `${exactBlock}${catBlocks}${credit}`,
     exact.length + rest.length,
   );
@@ -384,8 +395,18 @@ export function errorHtml(msg: string): string {
   return `<p class="error-msg">${esc(msg)}</p>`;
 }
 
-/** 結果全体（データ取得後）。year は取得失敗/未生成なら null（セクションごと非表示）。 */
-export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData | null = null): string {
+/**
+ * 結果全体（データ取得後）。取得失敗/未生成なら null（セクションごと非表示）。
+ * year は**暦年**（できごと・オリコン）、cohort は**学年**（同学年の有名人）のファイル。
+ * 早生まれだと別ファイルになるので分けて受ける（main.ts が両方 fetch する）。
+ */
+export function resultHtml(
+  input: YMD,
+  today: YMD,
+  day: DayData,
+  year: YearData | null = null,
+  cohort: YearData | null = null,
+): string {
   return (
     headerHtml(input) +
     summaryHtml(input, today) +
@@ -393,7 +414,7 @@ export function resultHtml(input: YMD, today: YMD, day: DayData, year: YearData 
     bornYearHtml(input, year) +
     peopleHtml(day.people) +
     oshiHtml(day.people, day.characters) +
-    sameYearHtml(input, day, year) +
+    sameYearHtml(input, day, cohort) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
     anniversaryHtml(day.anniversaries, day.events) +

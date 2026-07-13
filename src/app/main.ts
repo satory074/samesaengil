@@ -3,7 +3,7 @@
 import type { Character, DayData, Person, YearData, YearPerson } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
-import { exactMatchesOf, withoutExact } from "../lib/peers";
+import { cohortYearOf, exactMatchesOf, withoutExact } from "../lib/peers";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
 import { errorHtml, loadingHtml, resultHtml } from "./render";
 import { wireMoreButtons } from "./more";
@@ -132,14 +132,23 @@ export function boot(root: HTMLElement): void {
     syncUrl(input);
     refs.result.innerHTML = loadingHtml();
     const key = dayKey(input.month, input.day);
-    // 日と年は独立に取れるので並行に（レイテンシを重ねない）。
-    const [dayRaw, year] = await Promise.all([fetchDay(key), fetchYear(input.year)]);
+    // 学年（年度）は早生まれだと暦年の1つ前になり、同学年の有名人はそちらのファイルに入っている。
+    // 同じ年ならファイルは共用（余計な fetch をしない）。
+    const cohortYear = cohortYearOf(input);
+    const needsCohortFile = cohortYear !== input.year;
+    // 日・年・学年は独立に取れるので並行に（レイテンシを重ねない）。
+    const [dayRaw, year, cohortRaw] = await Promise.all([
+      fetchDay(key),
+      fetchYear(input.year),
+      needsCohortFile ? fetchYear(cohortYear) : Promise.resolve(null),
+    ]);
+    const cohort = needsCohortFile ? cohortRaw : year;
     const day = normalizeDay(key, dayRaw);
-    refs.result.innerHTML = resultHtml(input, todayYMD(), day, year);
+    refs.result.innerHTML = resultHtml(input, todayYMD(), day, year, cohort);
     lastPeople = day.people;
     lastCharacters = day.characters;
     // render 側と同じ切り方（⭐ に出した人はカテゴリ側に出さない）。
-    lastYearPeople = year ? withoutExact(year.people, exactMatchesOf(day.people, input.year)) : [];
+    lastYearPeople = cohort ? withoutExact(cohort.people, exactMatchesOf(day.people, input.year)) : [];
     last = { input, firstPerson: day.people[0]?.name };
   }
 

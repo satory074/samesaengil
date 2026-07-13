@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-生年月日を入れると、その誕生日にまつわる情報（同じ誕生日の有名人＝顔写真つき・フィクションキャラ・記念日・**その年の出来事＋生まれた週のオリコン1位（Spotify リンクつき）**・**同じ年に生まれた有名人＝芸能/スポーツ/音楽…のカテゴリ別**・星座/誕生石/誕生花/年齢/干支/和暦・**曜日/月齢/生誕日数/数秘/九星**）が出てくる若者向け静的サイト。Astro 5 + Tailwind v4 + TypeScript、GitHub Pages（Actions デプロイ）。公開: https://satory074.github.io/samesaengil/
+生年月日を入れると、その誕生日にまつわる情報（同じ誕生日の有名人＝顔写真つき・フィクションキャラ・記念日・**その年の出来事＋生まれた週のオリコン1位（Spotify リンクつき）**・**同じ学年の有名人＝芸能/スポーツ/音楽…のカテゴリ別**・星座/誕生石/誕生花/年齢/干支/和暦・**曜日/月齢/生誕日数/数秘/九星**）が出てくる若者向け静的サイト。Astro 5 + Tailwind v4 + TypeScript、GitHub Pages（Actions デプロイ）。公開: https://satory074.github.io/samesaengil/
 
 ## Commands
 
@@ -59,19 +59,25 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
 - **生まれた週のオリコン1位** `sources/jawikiOricon.ts`: `Template:オリコン週間シングルチャート第1位 YYYY年`（**1968年〜**）。実データで確認した表記ゆれを全部吸収する（パラメータ/箇条書きの空白、複数日 `23日・30日`、`（合算週: 2週分）`、半角括弧のアーティスト、タイトル内の括弧、未リンクのアーティスト、`&` を含む名前）。**存在しない年でも HTTP 200 + `{"error":{"code":"missingtitle"}}` が返る**ので `HttpError` ではなく `parse.wikitext` の有無で判定する。
 - 「生まれた週の1位」は **誕生日以前で最も近い週**。年始生まれのために `prevYearLast`（前年の最終週）を持たせ、選択はクライアントの純関数 `src/lib/year.ts` の `songForBirthday()` で行う（JSON は年単位なので特定の誕生日には解決できない）。
 - **Spotify リンク** `sources/spotify.ts`: Client Credentials でトークンを取り、`search?type=track&market=JP` を**フリーテキスト**（曲名＋アーティスト）で引いて**結果側で照合**する（`track:"..." artist:"..."` のフィールド指定は邦楽で取りこぼす）。照合は NFKC＋小文字化＋記号除去の緩い包含一致。ヒットしたら `ChartWeek.spotify` に曲ページ URL。キャッシュは `src/data/spotify.json`（`"曲名|アーティスト" -> URL`、`""` は**「Spotify に無い」の負キャッシュ**／ネットワーク失敗はキャッシュせず次回再試行。`SPOTIFY_RECHECK=1` で負キャッシュも引き直す）。**資格情報が無ければ解決をスキップ**し、表示側 `spotifyUrl()`（`src/lib/year.ts`）が**検索 URL にフォールバック**するので古いデータでも必ず飛べる。別ホストなので `gate:false`＋専用セマフォ（同時4・`SPOTIFY_CONCURRENCY`）。
-- **その年に生まれた有名人**（`YearData.people`）: **新しいソースも API 呼び出しも無い**。`aggregate.ts` が作った日別 JSON 366ファイルには既に人物の生年・肩書き・写真・人気（fame＝年間閲覧数）が入っている（計 ~8.9万人）ので、`buildPeopleByYear()` が**それを生年で逆引きする**だけ（ローカル I/O のみ・数秒）。したがって**日別 → 年 の実行順が必須**（CI もその順）。並びは人物と同じ規範（fame 降順 → 写真あり → 名前）、重複排除は URL。**カテゴリ（`src/lib/peers.ts` の `categorize`）ごとに上位30人でカット**＝最大150人/年。全件だと 1990年で 1824人・470KB になり、年 JSON は診断のたびに fetch されるホットパスなので上限は必須（現状 +30KB/年）。日別が読めないときは people を空で上書きせず前回値を維持する（`invertOk`）。**`YEARS_PEOPLE_ONLY=1` で Wikipedia/Oricon/Spotify を一切叩かず people だけ差し替え**（`aggregate.ts` の `CHARS_ONLY=1` と同じ発想。日別を再生成したあとの反映はこれで数秒）。
+- **同じ学年の有名人**（`YearData.people`）: **新しいソースも API 呼び出しも無い**。`aggregate.ts` が作った日別 JSON 366ファイルには既に人物の生年・肩書き・写真・人気（fame＝年間閲覧数）が入っている（計 ~8.9万人）ので、`buildCohortPeople()` が**それを学年で逆引きする**だけ（ローカル I/O のみ・数秒）。したがって**日別 → 年 の実行順が必須**（CI もその順）。
+  - **キーは暦年ではなく学年（年度）**: `YYYY.json` の `people` は「**YYYY/4/2 〜 YYYY+1/4/1 生まれ**」＝早生まれ（翌年1〜3月生まれ）が混ざる。同じファイルの `events`/`chartWeeks` は**暦年**なので、**1ファイル内で people だけ意味が違う**ことに注意。日本で「同い年」といえば同学年だからこうしている（判定は `src/lib/peers.ts` の `cohortYearOf`）。
+  - 並びは人物と同じ規範（fame 降順 → 写真あり → 名前）、重複排除は URL。**カテゴリ（`categorize`）ごとに上位30人でカット**＝最大150人/学年。全件だと 470KB/年になり、年 JSON は診断のたびに fetch されるホットパスなので上限は必須（現状 +30KB/年）。
+  - 日別が読めないときは people を空で上書きせず前回値を維持する（`invertOk`）。**`YEARS_PEOPLE_ONLY=1` で Wikipedia/Oricon/Spotify を一切叩かず people だけ差し替え**（`aggregate.ts` の `CHARS_ONLY=1` と同じ発想。日別を再生成したあとの反映はこれで数秒）。
 - **パーサ破損の検知**: 「できごと0件」「1968年以降なのに週間1位0件」「1920〜2005年なのに有名人0人」の年をログに列挙する。Wikipedia のテンプレ/節構成は編集されるので、サイレント破損はこれで気付く。Spotify も「新規解決/未収録/失敗」の件数をログに出す。
 
 ### 2. 表示（Astro SSG ＋ フレームワーク無しクライアント）
 - `src/pages/index.astro`: **サイトはこの1ページだけ**。年/月/日セレクトのフォーム（SSR）＋空の `#result`、末尾で `boot()` を起動。`components/Layout.astro` が head/OGP/フッタ（`title`/`description`/`canonical`/`image` の props）。
 - `src/pages/og/default.png.ts`: satori + resvg で **OG画像(1200x630)をビルド時に生成**（`src/lib/og.ts`）。静的ホスティングでは `?d=` ごとに OG を差し替えられないので**日付なしの汎用カード1枚**。PNG は**コミットしない**。
-- `src/app/main.ts` の `boot(root)`: クロージャ状態 ＋ `data-action` 委譲。フロー = 入力読取 → `isValidDate` 検証 → **per-day と per-year を `Promise.all` で並行 fetch** → `almanac.ts` で暦を計算 → `render.ts` で `#result.innerHTML` を組み立て → `history.replaceState` で `?d=YYYY-MM-DD` 同期。ロード時に `?d=` があれば即描画。`normalizeDay`/`normalizeYear` が古い JSON の欠損キーを既定値で補う（**新キー追加時は必ずここも**）。
+- `src/app/main.ts` の `boot(root)`: クロージャ状態 ＋ `data-action` 委譲。フロー = 入力読取 → `isValidDate` 検証 → **per-day・per-year・per-学年 を `Promise.all` で並行 fetch**（学年は早生まれだと暦年の1つ前のファイルになるので別途引く。同じ年ならファイルを共用して余計な fetch をしない） → `almanac.ts` で暦を計算 → `render.ts` で `#result.innerHTML` を組み立て → `history.replaceState` で `?d=YYYY-MM-DD` 同期。ロード時に `?d=` があれば即描画。`normalizeDay`/`normalizeYear` が古い JSON の欠損キーを既定値で補う（**新キー追加時は必ずここも**）。
 - `src/app/render.ts`: セクション別の HTML 文字列ビルダ（`esc()` で全データをエスケープ）。`resultHtml` が**唯一のセクション順序定義**。有名人カードは **イニシャルを背面に置き写真を被せる**方式（`.thumb[data-initials]` ＋ `img.photo onerror="this.remove()"`）＝写真が無い/失敗してもイニシャルが出る。キャラは1日 数百〜千件になりうるため（例 7/7 で ~1900 件）、有名人と同じく **先頭 `CHARS_VISIBLE`(=40) 件＋「もっと見る」遅延描画**。
 - `src/app/more.ts`: 「もっと見る」の click 委譲。描画済みの全件配列から残りを `insertAdjacentHTML` で足す（初期 DOM を軽く保つため、有名人30件・キャラ40件・同い年はカテゴリごと12件だけ先に描く）。同い年だけはカテゴリ別にグリッドが分かれるので、ボタンの `data-cat` と `[data-year-grid="<cat>"]` で対応づける。
 - `src/app/share.ts`: `?d=` の encode/decode・`isValidDate`/`daysInMonth`/`isLeap` の純関数（DOM 非依存・テスト対象）。
 - `src/lib/almanac.ts`: 星座/誕生石/誕生花/干支/和暦/世代/年齢 ＋ **ユリウス通日(JDN)ベース**の曜日/月齢/生誕日数/キリ番記念日/数秘ライフパス/九星の純関数。**`Date` を内部で使わない**（`ageOf`/`daysLivedOf` は基準日を引数で受ける）＝テスト可能。
 - `src/lib/days.ts`: `allDays()`（366日の列挙）。`aggregate.ts` が全日を回すのに使う（`aggregateYears.ts` の逆引きも）。
-- `src/lib/peers.ts`: 「同じ年に生まれた有名人」セクションの分類（新ソース無し。`oshi.ts` と同じ思想）。`categorize(desc)` が肩書きを 芸能/スポーツ/音楽/文化・アート/その他 に分ける——**最初にマッチしたキーワードの位置が最も早いカテゴリ**を採るので、jawiki の肩書きが主業を先頭に置く性質（「元アナウンサー、タレント」→芸能、「歌手、俳優」→音楽）に沿う。「陸上」ではなく「陸上競技」で見ている（陸上自衛官を拾わないため）。`exactMatchesOf` は生年月日まで一致する人（⭐）を**日別データ**から引く（年 JSON はカテゴリ上限で切られているため）。`withoutExact` がその人をカテゴリ側から除く＝同一セクション内の二重表示を防ぐ。**この2つは `render.ts` と `main.ts`（もっと見る用の配列）の両方で同じ切り方を再現する必要がある**。
+- `src/lib/peers.ts`: 「同じ学年の有名人」セクションの学年判定・分類（新ソース無し。`oshi.ts` と同じ思想）。
+  - `cohortYearOf(ymd)`: その生年月日が属する**学年（年度）**＝ `4/2 〜 翌4/1`。**4月1日生まれは早生まれで前の学年**（年齢は誕生日の前日終了時に加算されるため）。1995/6/18→1995年度、1995/3/15→1994年度、1995/4/1→1994年度、1995/4/2→1995年度。
+  - `categorize(desc)`: 肩書きを 芸能/スポーツ/音楽/文化・アート/その他 に分ける——**最初にマッチしたキーワードの位置が最も早いカテゴリ**を採るので、jawiki の肩書きが主業を先頭に置く性質（「元アナウンサー、タレント」→芸能、「歌手、俳優」→音楽）に沿う。「陸上」ではなく「陸上競技」で見ている（陸上自衛官を拾わないため）。
+  - `exactMatchesOf` は生年月日まで一致する人（⭐）を**日別データ**から引く（年 JSON はカテゴリ上限で切られていて漏れるため）。`withoutExact` がその人をカテゴリ側から除く＝同一セクション内の二重表示を防ぐ。**この2つは `render.ts` と `main.ts`（もっと見る用の配列）の両方で同じ切り方を再現する必要がある**。
 - `src/lib/oshi.ts`: 「推し」セクションの**再カット**（新ソース無し）。VTuber は既に `characters`（fanweb の作品名 `にじさんじ`/`ホロライブプロダクション`/`ぶいすぽっ！`/`バーチャルYouTuber`＝表記ゆれで `Youtuber` もある）に、K-POP アイドルは既に `people` の肩書き（例「アイドル、歌手（BTS）」）に入っているが、1日最大1932件のキャラ一覧・200人超の有名人一覧に埋もれている。それを拾い直すだけ＝**スクレイプもデータ増加もしない**。元の一覧からは除外しない（推しは「ハイライト」で、全件は元セクションで見られる）。**K-POP グループ名のラテン文字は単語境界を要求する**（でないと `Aivery` が `IVE` に、`KARAOKE` が `KARA` に部分一致する）。
 
 ## 重要な決定・ハマりどころ
