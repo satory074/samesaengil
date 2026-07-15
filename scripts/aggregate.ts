@@ -6,20 +6,40 @@
 //   npm run aggregate            … 全366日
 //   npm run aggregate 03-15      … 指定日のみ（argv）
 //   ONLY_DAYS=03-15,07-04 npm run aggregate
-//   CHARS_ONLY=1 npm run aggregate … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
+//   CHARS_ONLY=1 npm run aggregate  … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
+//   PHOTOS_ONLY=1 npm run aggregate … 日ページを叩かず、写真の無い人だけ外部ソースで補完して photo を差し替え
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { mapLimit } from "./lib/util";
-import { ensurePages, ensurePageviews, readState, resolveWorkFame, writeState, type State } from "./lib/state";
+import {
+  emptyPhotoStats,
+  ensurePages,
+  ensurePageviews,
+  ensurePhotos,
+  readState,
+  resolveWorkFame,
+  writeState,
+  type PhotoCandidate,
+  type PhotoStats,
+  type State,
+} from "./lib/state";
+import { photoUrlLooksLikePortrait } from "./lib/portrait";
 import { allDays } from "../src/lib/days";
 import charactersSeed from "../src/data/characters.json";
 import fanwebSeed from "../src/data/characters-fanweb.json";
 
 const ROOT = process.cwd();
 const DAYS_DIR = path.join(ROOT, "public", "data", "days");
+
+/**
+ * 外部ソースで顔写真を探す下限の人気（年間閲覧数）。
+ * 写真なしは 5 万人おり全員に TMDB を叩くのは重いので、実際に一覧の上の方に出てくる層に絞る。
+ * PHOTO_MIN_FAME=0 で全員が対象。
+ */
+const PHOTO_MIN_FAME = Number(process.env.PHOTO_MIN_FAME ?? 5000);
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -130,10 +150,17 @@ function rankPeople(people: Person[]): void {
   });
 }
 
-/** 日本語版「誕生日」1 行 → Person（＋dedup 用の正規化タイトル）。fame は ja Wikipedia の年間閲覧数。 */
+/**
+ * 日本語版「誕生日」1 行 → Person（＋dedup 用の正規化タイトル）。fame は ja Wikipedia の年間閲覧数。
+ * 写真は jawiki の pageimages が最優先で、無ければ外部ソース（state.photos）で補完したもの。
+ */
 function personFromJa(b: JaRawBirth, state: State): { person: Person; canon: string } {
-  const meta = state.pages[b.title] ?? {};
+  const cached = state.pages[b.title];
+  const meta = cached ?? {};
   const canon = meta.title ?? b.title; // リダイレクト解決後の実タイトル
+  // 解決を試みた結果いずれの記事にも当たらなかった（負キャッシュ）なら、リンクを張らない。
+  // 誕生日節には記事が無い人（赤リンク）も載っており、URL を組むと 404 に飛ばしてしまう。
+  const exists = cached === undefined || Boolean(meta.title);
   return {
     canon,
     person: {
@@ -141,8 +168,8 @@ function personFromJa(b: JaRawBirth, state: State): { person: Person; canon: str
       nameEn: "",
       year: b.year ?? 0,
       desc: b.descJa,
-      photo: meta.photo ?? "",
-      url: `https://ja.wikipedia.org/wiki/${encodeURIComponent(b.title)}`,
+      photo: meta.photo || (state.photos[b.title]?.url ?? ""),
+      url: exists ? `https://ja.wikipedia.org/wiki/${encodeURIComponent(b.title)}` : "",
       jaKnown: true,
       fame: state.views[canon] ?? 0, // 年間閲覧数＝日本での人気指標
     },
@@ -151,12 +178,14 @@ function personFromJa(b: JaRawBirth, state: State): { person: Person; canon: str
 
 /**
  * 日本語版Wikipedia「誕生日」節から人物一覧＋動物一覧を構築（人物リストは日本語版のみ）。
- * 名前・肩書きは日本語リスト由来、写真は ja pageimages、並び替えは ja Wikipedia の閲覧数(=人気)。
+ * 名前・肩書きは日本語リスト由来、並び替えは ja Wikipedia の閲覧数(=人気)。
+ * 写真は ja pageimages → 取れない人だけ外部ソース（TMDB / Wikidata P18 / Spotify）へフォールバック。
  */
 async function buildPeopleAndAnimals(
   jaBirths: JaRawBirth[],
   jaAnimals: JaRawBirth[],
   state: State,
+  photoStats: PhotoStats,
 ): Promise<{ people: Person[]; animals: Person[] }> {
   const all = [...jaBirths, ...jaAnimals];
   // 1) ja タイトルを {photo, 正規化タイトル} に解決（キャッシュ）。
@@ -164,7 +193,18 @@ async function buildPeopleAndAnimals(
   // 2) 正規化タイトルの閲覧数を取得（人気指標・キャッシュ）。
   await ensurePageviews(all.map((b) => state.pages[b.title]?.title ?? b.title), state);
 
-  // 3) 人物を構築。正規化タイトルで一意化。
+  // 3) jawiki に写真が無い人を外部ソースで補完（fame が確定してからでないと候補を絞れないのでこの順）。
+  const cands: PhotoCandidate[] = [];
+  for (const b of all) {
+    const meta = state.pages[b.title];
+    if (!meta?.title || meta.photo) continue; // 記事が無い人・すでに写真がある人は対象外
+    const fame = state.views[meta.title] ?? 0;
+    if (fame < PHOTO_MIN_FAME) continue;
+    cands.push({ key: b.title, name: b.name, qid: meta.qid });
+  }
+  await ensurePhotos(cands, state, photoStats);
+
+  // 4) 人物を構築。正規化タイトルで一意化。
   const byKey = new Map<string, Person>();
   for (const b of jaBirths) {
     const { person, canon } = personFromJa(b, state);
@@ -173,16 +213,116 @@ async function buildPeopleAndAnimals(
   const people = [...byKey.values()].filter((p) => !isYearLike(p.name));
   rankPeople(people);
 
-  // 4) 動物（人物以外）。
+  // 5) 動物（人物以外）。
   const animals = jaAnimals.map((b) => personFromJa(b, state).person).filter((p) => !isYearLike(p.name));
   rankPeople(animals);
 
   return { people, animals };
 }
 
+/** 写真の解決結果を 1 行で報告（サイレント破損の検知）。 */
+function logPhotoStats(stats: PhotoStats): void {
+  const found = stats.p18 + stats.commons;
+  if (found + stats.missing + stats.failed === 0) return;
+  console.log(
+    `[aggregate] 顔写真の補完: 解決${found}（P18 ${stats.p18} / Commons ${stats.commons}）` +
+      ` / 見つからず${stats.missing} / 失敗${stats.failed}`,
+  );
+}
+
+/** Person.url（`https://ja.wikipedia.org/wiki/<encoded>`）から state のキー（jawiki 要求タイトル）を復元。 */
+function jaTitleFromUrl(url: string): string {
+  const seg = url.split("/wiki/")[1];
+  if (!seg) return "";
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 高速適用パス: jawiki の「M月D日」ページを一切叩かず、既存 per-day ファイルの
+ * **写真が無い人だけ**を外部ソースで補完して photo を差し替える。
+ *
+ * 全366日ぶんの候補を先に集めてから 1 回で解決するので、Wikidata P18 の 50 件バッチが効く
+ * （日ごとに呼ぶ通常パスより API コール数が少ない）。写真は並び順のタイブレークなので最後に並べ直す。
+ */
+async function runPhotosOnly(state: State, days: { month: number; day: number }[]): Promise<void> {
+  const stats = emptyPhotoStats();
+  const files = new Map<string, DayData>();
+  const cands: PhotoCandidate[] = [];
+  let missingFiles = 0;
+  let purged = 0;
+
+  // 既存 JSON の写真も検品する。生成済みの per-day には「顔写真でない画像」（Gthumb.svg＝画像なし
+  // アイコン、グループのロゴ等）が入っており、state 側のマイグレーションだけでは JSON に残るため。
+  const keepPhoto = (p: Person): string => {
+    if (!p.photo) return "";
+    if (photoUrlLooksLikePortrait(p.photo)) return p.photo;
+    purged++;
+    return ""; // 顔でない画像は捨て、外部ソースの補完対象に回す
+  };
+
+  for (const { month, day } of days) {
+    const key = `${pad(month)}-${pad(day)}`;
+    const prev = readJson<DayData | null>(path.join(DAYS_DIR, `${key}.json`), null);
+    if (!prev) {
+      missingFiles++;
+      continue; // ファイルが無い日はスキップ（まず通常 aggregate が必要）
+    }
+    files.set(key, prev);
+    for (const p of [...prev.people, ...prev.animals]) {
+      if (keepPhoto(p) || p.fame < PHOTO_MIN_FAME) continue;
+      const title = jaTitleFromUrl(p.url);
+      if (!title) continue;
+      cands.push({ key: title, name: p.name, qid: state.pages[title]?.qid });
+    }
+  }
+  purged = 0; // 上のループは候補選定のための試算。実際の削除数は下の書き戻しで数える。
+
+  console.log(`[aggregate] PHOTOS_ONLY: ${files.size}日 / 写真なし${cands.length}人を外部ソースで補完します…`);
+  await ensurePhotos(cands, state, stats);
+  writeState(state);
+  logPhotoStats(stats);
+
+  let updated = 0;
+  let filled = 0;
+  for (const [key, prev] of files) {
+    const fix = (p: Person): Person => {
+      const kept = keepPhoto(p);
+      if (kept) return p;
+      const url = state.photos[jaTitleFromUrl(p.url)]?.url ?? "";
+      if (url) filled++;
+      return { ...p, photo: url }; // 見つからなければ ""（＝イニシャルのプレースホルダ）
+    };
+    const people = prev.people.map(fix);
+    const animals = prev.animals.map(fix);
+    rankPeople(people); // 写真ありは fame 同着時のタイブレーク＝埋まったぶん順序が動きうる
+    rankPeople(animals);
+    writeJson(path.join(DAYS_DIR, `${key}.json`), {
+      ...prev,
+      people,
+      animals,
+      updatedAt: new Date().toISOString(),
+    });
+    updated++;
+  }
+  console.log(
+    `[aggregate] PHOTOS_ONLY 完了: ${updated}日を更新（写真を新たに${filled}人ぶん追加 / 顔でない画像を${purged}件除去）` +
+      ` / 欠落${missingFiles}日`,
+  );
+}
+
 async function run(): Promise<void> {
   const state = readState();
   const charsOnly = Boolean(process.env.CHARS_ONLY);
+
+  // 写真だけの補完パス（キャラの人気解決も日ページ取得も不要なので最初に分岐する）。
+  if (process.env.PHOTOS_ONLY) {
+    await runPhotosOnly(state, selectDays());
+    return;
+  }
 
   // キャラの並び替えに使う「作品の人気」（＝作品記事の年間閲覧数）。人物の fame と同じ仕組み・
   // 同じキャッシュ（state.pages/views）。CHARS_ONLY は Wikipedia を叩かずキャッシュ済みの分だけ使う。
@@ -222,6 +362,7 @@ async function run(): Promise<void> {
   let ok = 0;
   let withErrors = 0;
   let done = 0;
+  const photoStats = emptyPhotoStats();
 
   await mapLimit(days, concurrency, async ({ month, day }) => {
     const key = `${pad(month)}-${pad(day)}`;
@@ -252,7 +393,7 @@ async function run(): Promise<void> {
       animals = prev?.animals ?? [];
     } else {
       try {
-        ({ people, animals } = await buildPeopleAndAnimals(jaBirths, jaAnimals, state));
+        ({ people, animals } = await buildPeopleAndAnimals(jaBirths, jaAnimals, state, photoStats));
       } catch (e) {
         errs.push(`people: ${(e as Error).message}`);
         people = prev?.people ?? [];
@@ -287,6 +428,7 @@ async function run(): Promise<void> {
   });
 
   writeState(state);
+  logPhotoStats(photoStats);
   console.log(`[aggregate] 完了: 成功${ok} / 警告${withErrors} / 計${days.length}日`);
 }
 

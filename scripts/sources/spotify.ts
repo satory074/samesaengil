@@ -72,18 +72,18 @@ async function getToken(force = false): Promise<string> {
   }
 }
 
-interface SearchResponse {
-  tracks?: {
-    items?: { name?: string; external_urls?: { spotify?: string }; artists?: { name?: string }[] }[];
-  };
-}
-
 /** 照合用の正規化（全角/半角・大小・記号・空白の揺れを吸収）。 */
 function norm(s: string): string {
   return s
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[\s'’"“”`・･,、.。!！?？&＆~〜\-–—_/\\()（）[\]［］{}【】「」]/g, "");
+}
+
+interface SearchResponse {
+  tracks?: {
+    items?: { name?: string; external_urls?: { spotify?: string }; artists?: { name?: string }[] }[];
+  };
 }
 
 /** 短すぎる部分一致での誤爆を避けつつ、表記揺れ（〜Ver. 等）を許容する。 */

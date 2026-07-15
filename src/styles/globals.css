@@ -319,13 +319,37 @@ a:hover {
   text-decoration: none;
 }
 /* イニシャルを背面に置き、写真があれば上から被せる。
-   読み込み失敗時は onerror で img を消すとイニシャルが現れる。 */
+   読み込み失敗時は onerror で img を消すとイニシャルが現れる。
+
+   写真なしは例外ではなく一覧の約4割（日本語版 Wikipedia は存命の日本人の自由ライセンス写真が
+   乏しい）。そこで肩書きのカテゴリ（render.ts の data-cat）ごとに色相を変え、
+   「読み込みに失敗した灰色」ではなく「分類された色チップ」として意図的に見せる。 */
 .pcard .thumb {
+  --thumb-hue: 322; /* 既定はブランドのピンク寄り。data-cat で上書きする */
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: var(--accent-grad);
+  background: linear-gradient(
+    135deg,
+    hsl(var(--thumb-hue) 85% 62%) 0%,
+    hsl(calc(var(--thumb-hue) + 38) 70% 55%) 100%
+  );
   overflow: hidden;
+}
+.pcard .thumb[data-cat="ent"] {
+  --thumb-hue: 330; /* 芸能 = ピンク */
+}
+.pcard .thumb[data-cat="sports"] {
+  --thumb-hue: 152; /* スポーツ = グリーン */
+}
+.pcard .thumb[data-cat="music"] {
+  --thumb-hue: 260; /* 音楽 = パープル */
+}
+.pcard .thumb[data-cat="culture"] {
+  --thumb-hue: 28; /* 文化・アート = オレンジ */
+}
+.pcard .thumb[data-cat="other"] {
+  --thumb-hue: 205; /* その他 = ブルー */
 }
 .pcard .thumb::before {
   content: attr(data-initials);
@@ -334,9 +358,12 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
+  /* 2 文字（「今田」）が既定。カードは最小 150px 幅なので 30px なら漢字2字が余裕で収まる。 */
+  font-size: 30px;
+  letter-spacing: 0.02em;
   font-weight: 900;
   color: var(--ink-on-accent);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
 }
 .pcard .thumb .photo {
   position: absolute;

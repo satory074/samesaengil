@@ -1,6 +1,8 @@
 // エンジン純関数のスモークテスト。実行: npx tsx scripts/smoketest.ts
 // 1) almanac（星座・誕生石・干支・和暦・世代・年齢・誕生花）
 // 2) share（日付クエリの encode/decode・妥当性判定）
+// 3) year / oshi / peers（生まれた年・推し・同じ学年）
+// 4) portrait / initials（顔写真の照合ロジックと、写真が無いカードの見た目）
 import {
   ageOf,
   birthFlowerOf,
@@ -38,6 +40,13 @@ import {
   isEarlyBirth,
   withoutExact,
 } from "../src/lib/peers";
+import {
+  looksLikePortrait,
+  p18FileMatchesPerson,
+  photoUrlLooksLikePortrait,
+  sourceFileFromThumbUrl,
+} from "./lib/portrait";
+import { initials } from "../src/app/render";
 import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
@@ -336,6 +345,87 @@ function assert(cond: boolean, msg: string): void {
   const rest = withoutExact([yp("松村北斗", "アイドル、俳優"), yp("南野拓実", "サッカー選手")], exact);
   assert(rest.length === 1 && rest[0].name === "南野拓実", "⭐ の人はカテゴリ側から除かれる");
   console.log("[peers] OK");
+}
+
+// ---- 顔写真の補完（scripts/lib/portrait.ts の純関数）----
+{
+  // Wikidata P18 は「項目を代表する画像」であって顔写真とは限らない（署名・墓・銅像など）。
+  assert(looksLikePortrait("Sei Shiraishi 2019.jpg"), "ふつうの人物写真は通す");
+  assert(looksLikePortrait("BuzzFeed MUSIC AWARDS JAPAN 2026 - 畑芽育.png"), "イベント写真も通す");
+  assert(!looksLikePortrait("Ada Lovelace signature.svg"), "署名は弾く");
+  assert(!looksLikePortrait("Grave of Soseki Natsume.jpg"), "墓は弾く");
+  assert(!looksLikePortrait("Foo statue in Tokyo.jpg"), "銅像は弾く");
+  assert(!looksLikePortrait("Something.svg"), "SVG は弾く（アイコン・紋章）");
+  // Commons は名前空間6で音声も返す。「あの」の検索で .wav の発音ファイルが引っかかった実例への対策。
+  assert(!looksLikePortrait("LL-Q5287 (jpn)-Zsrtrgh-あの.wav"), "音声ファイル(.wav)は弾く");
+  // panoramio は地理タグ写真＝風景/建物。やなせたかしの名を含むアンパンマン記念碑がヒットした実例。
+  assert(!looksLikePortrait("上海 バンド（やなせたかし） - panoramio.jpg"), "panoramio（風景/建物）は弾く");
+
+  // 拒否リストで弾けない非ポートレートへの本命の関門＝「ファイル名が本人の名前を含むこと」。
+  // 実データ: 今田美桜（03-05 の閲覧数1位）の P18 は彼女の広告看板が写った**建物の写真**で、
+  // これを素通しすると一覧の先頭カードの顔が PARCO のビルになる。
+  assert(
+    !p18FileMatchesPerson("Nagoya PARCO seen from Otsu-dori.jpg", ["今田美桜"], ["Mio Imada"]),
+    "名前を含まないファイル（建物写真）は不採用",
+  );
+  assert(
+    p18FileMatchesPerson("Sei Shiraishi 2019.jpg", ["白石聖"], ["Sei Shiraishi"]),
+    "英語ラベルの全トークンを含めば採用",
+  );
+  // Wikidata の英語ラベルはマクロン付き（"Hikaru Tōno"）なのに Commons のファイル名は素の綴り。
+  // ここを正規化しないと 齋藤/大野/優希… のような長音を含む日本人名が軒並み弾かれる（実際に弾かれた）。
+  assert(
+    p18FileMatchesPerson("Tono_Hikaru_2020.jpg", ["遠野ひかる"], ["Hikaru Tōno"]),
+    "マクロン（ō）を落として突き合わせる／姓名の順が逆でも採用",
+  );
+  assert(
+    p18FileMatchesPerson("BuzzFeed MUSIC AWARDS JAPAN 2026 - 畑芽育.png", ["畑芽育"], ["Mei Hata"]),
+    "日本語表記を含めば採用（英語ラベルが一致しなくてよい）",
+  );
+  assert(
+    !p18FileMatchesPerson("Seen from the hill.jpg", ["某氏"], ["Sei Ito"]),
+    "トークンの部分一致では採用しない（sei が seen に当たらない）",
+  );
+  assert(!p18FileMatchesPerson("Some building.jpg", [undefined], []), "名前が無ければ不採用");
+
+  // jawiki の pageimages も「記事の代表画像」であって顔写真とは限らない（実測 3.0% が非ポートレート）。
+  // SVG 由来のサムネは URL 末尾が .png に化けるので、**元ファイル名**（thumb の1つ手前）で判定する。
+  assert(
+    sourceFileFromThumbUrl(
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/HKT48_logo.svg/330px-HKT48_logo.svg.png",
+    ) === "HKT48_logo.svg",
+    "thumb URL から元ファイル名を取り出す（末尾セグメントではない）",
+  );
+  assert(
+    sourceFileFromThumbUrl("https://upload.wikimedia.org/wikipedia/commons/c/ce/%E5%BF%97%E5%B0%8A%E6%B7%B3_2.jpg") ===
+      "志尊淳_2.jpg",
+    "thumb でない URL は末尾セグメント（％デコードする）",
+  );
+  assert(
+    !photoUrlLooksLikePortrait(
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/HKT48_logo.svg/330px-HKT48_logo.svg.png",
+    ),
+    "グループのロゴは顔写真ではない（今田美奈のサムネが HKT48 のロゴだった）",
+  );
+  assert(
+    !photoUrlLooksLikePortrait("https://upload.wikimedia.org/wikipedia/commons/thumb/x/xx/Gthumb.svg/330px-Gthumb.svg.png"),
+    "Gthumb.svg は Wikipedia の「画像なし」アイコンそのもの",
+  );
+  assert(
+    photoUrlLooksLikePortrait("https://upload.wikimedia.org/wikipedia/commons/c/ce/%E5%BF%97%E5%B0%8A%E6%B7%B3_2.jpg"),
+    "ふつうの人物写真は通す",
+  );
+  console.log("[photos] OK");
+}
+
+// ---- イニシャル（写真が無いカードの見た目。一覧の約4割に出る主要な表示）----
+{
+  assert(initials({ name: "今田美桜" }) === "今田", "漢字名は先頭2文字");
+  assert(initials({ name: "ゲオルク・オーム" }) === "ゲオ", "中黒つきは各セグメントの頭1字");
+  assert(initials({ name: "あの" }) === "あの", "2文字の名前はそのまま");
+  assert(initials({ name: "轟" }) === "轟", "1文字の名前でも落ちない");
+  assert(initials({ name: "Ada Lovelace", nameEn: "Ada Lovelace" }) === "AL", "英語名は姓名の頭文字");
+  console.log("[initials] OK");
 }
 
 console.log("\n✅ smoketest passed");

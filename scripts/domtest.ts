@@ -226,6 +226,13 @@ function submit(dom: JSDOM, root: Element): void {
   // 写真なし(2人目)はイニシャル data-initials を持つ
   const thumbs = [...result.querySelectorAll(".thumb")];
   assert(thumbs.some((t) => (t as HTMLElement).dataset.initials === "SP"), "イニシャルSP（Some Person）");
+  // 写真が無いカードは一覧の約4割になるので、肩書きのカテゴリで色を出し分ける（CSS が data-cat を拾う）。
+  const pogbaThumb = result.querySelector('[data-people-grid] .pcard .thumb') as HTMLElement;
+  assert(pogbaThumb.dataset.cat === "sports", `サッカー選手は sports（実際: ${pogbaThumb.dataset.cat}）`);
+  assert(
+    thumbs.every((t) => !!(t as HTMLElement).dataset.cat),
+    "全サムネにカテゴリが付く（プレースホルダの色が決まる）",
+  );
 
   // 同じ学年の有名人。1995-03-15 は早生まれなので学年は 1994年度＝人は 1994.json（暦年の1つ前）から来る。
   // SAMPLE_YEAR(1995) の people は空なので、カードが出ていること自体が「学年のファイルを引いた」証拠。

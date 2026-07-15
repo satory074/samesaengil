@@ -1,22 +1,25 @@
 // samesaengil のデータ型（ビルドスクリプトとクライアントで共有）。
 
-/** 同じ誕生日の実在の有名人（Wikipedia births + Wikidata 由来）。 */
+/** 同じ誕生日の実在の有名人（日本語版Wikipedia「M月D日」の誕生日節に載っている人）。 */
 export interface Person {
-  /** 日本語名（無ければ英語名）。 */
+  /** 日本語名。 */
   name: string;
-  /** 英語名（イニシャルアバター用にも使う）。 */
+  /** 英語名（イニシャルアバター用）。日本語版のみを使う現在は常に空文字。 */
   nameEn: string;
-  /** 生年（西暦）。年齢計算に使う。 */
+  /** 生年（西暦）。年齢計算に使う。0 は生年非公表/不詳。 */
   year: number;
-  /** ひとことプロフィール（日本語優先、無ければ英語）。 */
+  /** ひとことプロフィール（日本語の肩書き）。 */
   desc: string;
-  /** 顔写真 URL（Wikimedia Commons 直リンク）。無ければ空文字。 */
+  /**
+   * 顔写真 URL。無ければ空文字（一覧の約4割。日本語版Wikipedia は存命の日本人の自由ライセンス写真が乏しい）。
+   * 出所は jawiki の pageimages が最優先で、無ければ TMDB / Wikidata P18 / Spotify（scripts/sources/photos.ts）。
+   */
   photo: string;
   /** Wikipedia 記事 URL。 */
   url: string;
   /** 日本語版 Wikipedia に記事がある（＝日本でも知られている）か。 */
   jaKnown: boolean;
-  /** 知名度の代理指標（Wikidata の sitelink 数）。並び替え用。 */
+  /** 人気の指標（日本語版Wikipedia の直近12か月の閲覧数）。並び替え用。 */
   fame: number;
 }
 

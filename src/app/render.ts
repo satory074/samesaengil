@@ -39,7 +39,14 @@ export function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** 英語名（無ければ日本語名）からイニシャル 1〜2 文字。YearPerson（nameEn を持たない）でも使う。 */
+/**
+ * 写真が無いカードのイニシャル 2 文字。写真は日本の存命の有名人ほど無い（自由ライセンスの
+ * 画像が Wikipedia に無いため）ので、これはレアケースではなく一覧の 4 割に出る**主要な見た目**。
+ *
+ *   「今田美桜」  → 今田      （漢字名は先頭2文字＝だいたい姓）
+ *   「ゲオルク・オーム」→ ゲオ  （中黒つきは各セグメントの頭1字）
+ *   「Ada Lovelace」→ AL      （nameEn があれば姓名の頭文字。現状 nameEn は常に空）
+ */
 export function initials(person: { name: string; nameEn?: string }): string {
   const en = person.nameEn?.trim();
   if (en) {
@@ -48,7 +55,10 @@ export function initials(person: { name: string; nameEn?: string }): string {
     const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
     return (a + b).toUpperCase();
   }
-  return person.name.slice(0, 1);
+  const name = person.name.trim();
+  const segs = name.split(/[・･\s]+/).filter(Boolean);
+  if (segs.length > 1) return segs[0][0] + segs[1][0];
+  return [...name].slice(0, 2).join(""); // サロゲートペア対策で配列化
 }
 
 /* ---------- 結果ヘッダ ---------- */
@@ -202,14 +212,21 @@ export function peopleMoreHtml(people: Person[]): string {
   return people.slice(PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
 }
 
-/** カード 1 枚。meta 行の前置き（「1995年生まれ」「6/18生まれ」）だけ呼び出し側で決める。 */
+/**
+ * カード 1 枚。meta 行の前置き（「1995年生まれ」「6/18生まれ」）だけ呼び出し側で決める。
+ *
+ * サムネはイニシャルを背面に置き、写真があれば上から被せる（読み込み失敗時は onerror で img を
+ * 消すとイニシャルが現れる）。写真が無いカードは一覧の 4 割に達するので、肩書きのカテゴリで
+ * 色を変えて「壊れている」ではなく「分類された色」に見せる（data-cat を CSS が拾う）。
+ */
 function cardHtml(p: { name: string; nameEn?: string; desc: string; photo: string; url: string }, meta: string): string {
   const ini = esc(initials(p));
+  const cat = categorize(p.desc);
   const thumb = p.photo
-    ? `<div class="thumb" data-initials="${ini}"><img class="photo" src="${esc(p.photo)}" alt="${esc(
-        p.name,
-      )}" loading="lazy" decoding="async" onerror="this.remove()" /></div>`
-    : `<div class="thumb" data-initials="${ini}"></div>`;
+    ? `<div class="thumb" data-cat="${cat}" data-initials="${ini}"><img class="photo" src="${esc(
+        p.photo,
+      )}" alt="${esc(p.name)}" loading="lazy" decoding="async" onerror="this.remove()" /></div>`
+    : `<div class="thumb" data-cat="${cat}" data-initials="${ini}"></div>`;
   const inner = `${thumb}<div class="body"><div class="name">${esc(p.name)}</div><div class="meta">${esc(
     meta,
   )}${p.desc ? ` ・ ${esc(p.desc)}` : ""}</div></div>`;

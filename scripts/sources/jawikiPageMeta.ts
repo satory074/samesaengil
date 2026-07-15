@@ -2,6 +2,7 @@
 // action=query の prop=pageimages|pageprops で 50 件ずつ・3 並列。
 // normalized / redirects を辿って「要求タイトル」で引けるよう対応づける。
 import { chunk, fetchJson, mapLimit } from "../lib/util";
+import { photoUrlLooksLikePortrait } from "../lib/portrait";
 
 export interface PageMeta {
   qid?: string;
@@ -18,6 +19,8 @@ interface QueryResponse {
       string,
       {
         title?: string;
+        /** 存在しない記事（赤リンク）。MediaWiki は負の pageid ＋ title つきで返してくる。 */
+        missing?: string;
         pageprops?: { wikibase_item?: string };
         thumbnail?: { source?: string };
       }
@@ -52,10 +55,18 @@ async function fetchBatch(titles: string[]): Promise<Map<string, PageMeta>> {
     for (const r of data.query?.redirects ?? []) redir.set(r.from, r.to);
     for (const p of Object.values(data.query?.pages ?? {})) {
       if (!p.title) continue;
+      // 存在しない記事は「解決済み」にしない。ここを見ていなかったため赤リンクが {title} として
+      // 固着し、死んだ Wikipedia リンクを描画していた（state.ts の v1 マイグレーションで掃除する）。
+      if (p.missing !== undefined) continue;
       const prev = byTitle.get(p.title) ?? {};
+      // pageimages は「記事の代表画像」であって顔写真とは限らない。実測 3.0% が Gthumb.svg
+      // （Wikipedia の「画像なし」アイコン）・グループのロゴ・墓・家紋。顔でない画像を顔として
+      // 出すより空欄にして、外部ソースのフォールバックに回す（lib/portrait.ts 参照）。
+      const thumb = p.thumbnail?.source;
+      const photo = thumb && photoUrlLooksLikePortrait(thumb) ? thumb : undefined;
       byTitle.set(p.title, {
         qid: p.pageprops?.wikibase_item ?? prev.qid,
-        photo: p.thumbnail?.source ?? prev.photo,
+        photo: photo ?? prev.photo,
         title: p.title, // 正規化後タイトル
       });
     }

@@ -37,8 +37,7 @@ jobs:
       - name: Aggregate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 任意（無ければ英語descのまま）
+        # 顔写真の補完は認証不要（Wikidata P18 のみ）＝追加の Secret は要らない。
 
       # 生まれた年（YYYY年の出来事＋オリコン週間1位＋Spotify 曲リンク）。同じゲートの下に置く。
       - name: Aggregate years
