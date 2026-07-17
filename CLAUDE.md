@@ -30,6 +30,7 @@ npm run rank:works             # 作品の人気（閲覧数）を state.json �
 
 # 1回だけ実行する取込スクリプト（生成物はコミット済み。通常は再実行不要）
 npm run import:characters      # bd.fan-web.jp → src/data/characters-fanweb.json
+npm run import:char-images     # AniList → src/data/anilist.json（キャラ画像。人気順・再開可能・~1-2h）
 npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Subset.ttf（OG画像用）
 ```
 
@@ -104,10 +105,15 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
 - **日別ページ `/day/MM-DD` は廃止**（かつては SEO の受け皿として366ページ SSG＋OG画像366枚）。サイトはトップ1ページのみ、canonical は `/`（`?d=` の4万通りをインデックスさせないため）。`@astrojs/sitemap` は導入済み（以前は `public/robots.txt` が存在しない `sitemap-index.xml` を指していて実際に404だった）。
 - **誕生日パースの注意**: `jawikiDay.ts` の `parseBirthLine` は「名前、肩書き（+ 没年）」構造を前提に、**末尾の没年注記を先に落としてから最初の読点までを名前**にする（でないと未リンクの人名行で末尾の `[[没年]]` をリンクとして拾い、名前が「2008年」等になる）。`aggregate.ts` の `isYearLike` は年名エントリ除外の保険（現状ほぼ発火しない）。
 - **CI は push 時 aggregate をスキップ**（`.github/workflows/update-and-deploy.yml`）: データ再生成は `schedule`（週1）/`workflow_dispatch` のみ。push 時はコミット済みデータでビルドするだけ＝データ bot のコミット→push→再生成 の無限ループ防止。push 時も typecheck/test/build は走る。
-- **キャラは 2 系統の静的シード**（どちらも `{name, work, month, day, color?}`、**画像は著作権配慮で不掲載**＝名前＋作品名＋色チップのみ）:
+- **キャラは 2 系統の静的シード**（どちらも `{name, work, month, day, color?}`）:
   - **curated** `src/data/characters.json`（手描き・少数・色つき）。**ONE PIECE も他作品と同じ 1 ソース**として特別扱いしない。
   - **fanweb バルク** `src/data/characters-fanweb.json`（**コミット済み・~7.5万件/6974作品**）。生成は取込スクリプト `scripts/importFanwebCharacters.ts`（`scripts/sources/fanwebDay.ts` が bd.fan-web.jp の日別ページ `sayhappy_sp.cgi?month=&day=` を `fetchText`＋正規表現でパース、`<font color=crimson><b>名前</b></font>(<a ...search.cgi...>作品</a>)` を抽出）。**aggregate は実行時に第三者サイトへ依存しない**（このコミット済み JSON を読むだけ）。
   - **キャラの取込・反映フロー**: `npm run import:characters`（全366日を再取得→ `characters-fanweb.json` 上書き。`npx tsx scripts/importFanwebCharacters.ts <MM-DD ...>` は当該日のみ・出力のみでファイル未書込＝デバッグ）→ `npm run rank:works`（新しい作品の閲覧数を state に足す。既存作品はキャッシュ済みなので速い）→ `CHARS_ONLY=1 npm run aggregate`（**Wikipedia を叩かず** 既存 per-day ファイルの `characters` だけ差し替え＝全日を数秒で反映。並びは**キャッシュ済みの人気のみ**で決まるので `rank:works` を先に）。通常の `npm run aggregate`（フル再取得）でも同じ `charMap` 経由で反映され、未解決の作品はその場でトップアップされる。
+- **キャラ画像（AniList・認証不要）**: かつては「著作権配慮で不掲載」だったが、**リスクを認識した上で AniList の画像を直リンク表示する判断に変更**（2026-07、ユーザー決定）。権利は各権利者に帰属し、フッタに帰属と削除窓口を明記。**問題が起きたら `src/data/anilist.json` を `{"works":{}}` にして `CHARS_ONLY=1 npm run aggregate` を回せば即・全撤去できる**。
+  - 取込は `npm run import:char-images`（`scripts/importCharacterImages.ts`）: キャラ名のグローバル検索はノイズが多い（実測: 無関係な人気キャラが返る）ので、**`Media(search:作品名)` → `characters` ページネーション**で作品単位に取り、`scripts/lib/charMatch.ts` で照合する——Media 照合は緩く（包含一致・「シリーズ」除去）、**キャラ名は正規化後の完全一致のみ**（作品内照合なので誤爆源が少ない）。MANGA と ANIME の両エントリからマージ（キャラ集合が違う）。
+  - レートは ~28 req/分（AniList の degraded 制限 30 に合わせた 2.1 秒間隔）。作品の人気降順に処理し **10 作品ごとに途中保存＝いつ止めても再実行で続きから**。`CHAR_IMG_WORKS`（既定800）/`CHAR_IMG_RECHECK=1`。全体で1〜2時間かかるので nohup 推奨。
+  - キャッシュ `src/data/anilist.json`（コミットする）: `works[作品名] = {title, chars:{キャラ名→画像URL}} | {none:true}`。反映は `buildCharacterMap` が読むだけ（**実行時 API なし**）→ `CHARS_ONLY=1 npm run aggregate`。
+  - **カバー範囲はアニメ・漫画のみ**＝表示キャラの4〜5割が上限。サンリオ・シルバニアファミリー・ポップン・多くのゲーム（原神・アークナイツ等）・VTuber は取れず色ドットのまま。画像は `s4.anilist.co` 直リンク（ホットリンク遮断なしを確認済み）で、読み込み失敗時は `onerror` で色ドットに戻る。
 - **生成データはコミットする**（`.gitignore` で除外しない）: 初回 push のデプロイは aggregate をスキップするため、コミット済みの `public/data/**` がそのまま公開される＝全日完備が前提。
 - **base path**: `astro.config.mjs` の `base:"/samesaengil"`。JS で組む内部リンク・`public/` への fetch は必ず `siteLink()` を通す。CI では `GH_USER` を `github.repository_owner` で上書き。Tailwind v4 の Vite プラグインは型不一致のため `astro.config.mjs` で `any` キャスト。
 
@@ -137,7 +143,7 @@ npm run aggregate 03-15   # 指定日のみ（デバッグ）
 - 顔写真＋正規化タイトル: 上のjawikiタイトルを `action=query&prop=pageimages|pageprops`（redirects追従）で一括解決し、写真＋**リダイレクト解決後の正規化タイトル**（＋Q-ID）を得る。`sources/jawikiPageMeta.ts`
 - 人気（並び替え指標＝閲覧数）: **日本語版Wikipediaの年間閲覧数**（Wikimedia REST **pageviews API**、別ホスト）。`sources/jawikiPageviews.ts`。人物は増やさず並び順にだけ使う。並びは 閲覧数降順→写真→生年新しい順、**全件保存**し表示は先頭30＋もっと見る（遅延描画）。**metrics APIは1IP~6並列で429**のため日並列と無関係に総同時実行6の共有セマフォで絞る（`gate:false`）。旧Wikidata sitelink方式（世界的知名度で米大統領等が上位に来てズレる）は廃止
 - 今日は何の日: 同じ `fetchDayInfo`（**節indexはページ毎に違うので section一覧から名前で引く**）
-- キャラ: 手動JSON `src/data/characters.json`（**画像は著作権のため不掲載**、名前＋作品名のみ。ONE PIECE も1ソースとして平等扱い）
+- キャラ: 手動JSON `src/data/characters.json`＋fanwebバルク（名前＋作品名＋色チップ。**アニメ・漫画キャラは AniList 画像つき**＝`src/data/anilist.json`）
 - 占い/暦: `src/lib/almanac.ts` で計算（API不要）
 
 **Gotcha**: 人物は日本語版由来なので肩書きは初めから日本語（旧・英語版マージ＋翻訳は廃止）。キャッシュ/失敗フォールバックは `src/data/state.json`（`pages`＋`views`）＋前回per-dayファイル。`color-scheme: light dark` 宣言＋ `prefers-color-scheme: dark` の正規ダークテーマで自動ダークモード対策（ただし Chrome の force-dark フラグ有効環境はCSSから抑止不可＝paint層で強制）。Tailwind v4 + Astro 型不一致は `astro.config.mjs` で `any` キャスト、`base: "/samesaengil"`。`src/app/*`・`src/lib/*` は tsx テストのため**相対import**（@エイリアス不可）。

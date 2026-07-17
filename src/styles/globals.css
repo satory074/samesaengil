@@ -449,6 +449,23 @@ a:hover {
   border-radius: 50%;
   flex: none;
 }
+/* キャラ画像（AniList 直リンク）。ドットの位置に 32px 角で重ね、読み込み失敗時は
+   onerror で img が消えて背面の色ドットに戻る（画像なしキャラと同じ見た目に揃う）。 */
+.chip .dot.has-img {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.chip .dot .cimg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 18%; /* AniList の立ち絵は顔が上部に来る */
+  border-radius: 8px;
+}
 .chip .cname {
   font-weight: 800;
   font-size: 14px;

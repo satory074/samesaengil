@@ -361,8 +361,15 @@ export function charactersMoreHtml(chars: Character[]): string {
   return chars.slice(CHARS_VISIBLE).map(charChip).join("");
 }
 
+/**
+ * キャラ 1 件。画像（AniList 直リンク）があれば色ドットの位置に 32px 角サムネを重ねる。
+ * ドットを背面に残したまま img を被せるので、読み込み失敗（onerror で除去）時は色ドットに戻る。
+ */
 function charChip(c: Character): string {
-  const dot = `<span class="dot" style="background:${esc(c.color ?? "#8b5cf6")}"></span>`;
+  const img = c.image
+    ? `<img class="cimg" src="${esc(c.image)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+    : "";
+  const dot = `<span class="dot${img ? " has-img" : ""}" style="background:${esc(c.color ?? "#8b5cf6")}">${img}</span>`;
   const inner = `${dot}<span class="cname">${esc(c.name)}</span><span class="cwork">${esc(c.work)}</span>`;
   return c.url
     ? `<a class="chip" href="${esc(c.url)}" target="_blank" rel="noopener">${inner}</a>`

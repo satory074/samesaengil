@@ -91,9 +91,23 @@ function allWorks(): string[] {
  * （characters-fanweb.json、color は作品名から自動導出）を追加。各日 name で重複排除
  * （curated 優先＝手描き色を残す）。最後に「作品の人気」順へ並べ替える。
  */
+/** AniList 由来のキャラ画像キャッシュ（src/data/anilist.json、コミット済み）。作品名 → キャラ名 → 画像URL。 */
+function readCharImages(): Map<string, Record<string, string>> {
+  const cache = readJson<{ works?: Record<string, { chars?: Record<string, string> }> }>(
+    path.join(ROOT, "src", "data", "anilist.json"),
+    {},
+  );
+  const map = new Map<string, Record<string, string>>();
+  for (const [work, e] of Object.entries(cache.works ?? {})) {
+    if (e.chars && Object.keys(e.chars).length > 0) map.set(work, e.chars);
+  }
+  return map;
+}
+
 function buildCharacterMap(fame: Map<string, number>): Map<string, Character[]> {
   const map = new Map<string, Character[]>();
   const seen = new Map<string, Set<string>>(); // key -> その日の登録済み name 集合
+  const images = readCharImages(); // 実行時 API なし（コミット済みキャッシュを読むだけ）
 
   const add = (c: CharSeedRow, color: string | undefined): void => {
     const key = `${pad(c.month)}-${pad(c.day)}`;
@@ -102,7 +116,8 @@ function buildCharacterMap(fame: Map<string, number>): Map<string, Character[]> 
     names.add(c.name);
     seen.set(key, names);
     const arr = map.get(key) ?? [];
-    arr.push({ name: c.name, work: c.work, url: c.url, color });
+    const image = images.get(c.work)?.[c.name];
+    arr.push({ name: c.name, work: c.work, url: c.url, color, ...(image ? { image } : {}) });
     map.set(key, arr);
   };
 

@@ -17,6 +17,10 @@ interface FetchOpts {
   headers?: Record<string, string>;
   /** false でグローバル同時実行ゲートを通さない（別ホストで上限が緩い pageviews API 用）。 */
   gate?: boolean;
+  /** HTTP メソッド（既定 GET）。GraphQL（AniList）の POST 用。 */
+  method?: string;
+  /** リクエストボディ（POST 用）。 */
+  body?: string;
 }
 
 // --- グローバルなリクエスト調停（Wikimedia の 429 対策）---
@@ -59,6 +63,8 @@ async function fetchWithTimeout(url: string, opts: FetchOpts): Promise<Response>
   try {
     return await fetch(url, {
       signal: ctrl.signal,
+      method: opts.method ?? "GET",
+      body: opts.body,
       headers: { "User-Agent": USER_AGENT, ...opts.headers },
     });
   } finally {

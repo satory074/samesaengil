@@ -23,15 +23,20 @@ export interface Person {
   fame: number;
 }
 
-/** 同じ誕生日のフィクションキャラ（複数作品横断・画像なし）。 */
+/** 同じ誕生日のフィクションキャラ（複数作品横断）。 */
 export interface Character {
   name: string;
   /** 作品名（例: "ONE PIECE"）。 */
   work: string;
   /** 公式/出典 URL（任意）。 */
   url?: string;
-  /** 色チップの色（任意、#rrggbb）。 */
+  /** 色チップの色（任意、#rrggbb）。画像が無い/読めないキャラの表示に使う。 */
   color?: string;
+  /**
+   * キャラ画像 URL（任意、AniList 直リンク）。アニメ・漫画のキャラのみ（ゲーム・サンリオ・
+   * VTuber 等は付かない）。取込は scripts/importCharacterImages.ts → src/data/anilist.json。
+   */
+  image?: string;
 }
 
 /** 記念日・年中行事（その月日の）。 */

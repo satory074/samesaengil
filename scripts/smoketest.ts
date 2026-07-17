@@ -46,6 +46,7 @@ import {
   photoUrlLooksLikePortrait,
   sourceFileFromThumbUrl,
 } from "./lib/portrait";
+import { charNameMatches, mediaTitleMatches, normName } from "./lib/charMatch";
 import { initials } from "../src/app/render";
 import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
@@ -416,6 +417,29 @@ function assert(cond: boolean, msg: string): void {
     "ふつうの人物写真は通す",
   );
   console.log("[photos] OK");
+}
+
+// ---- キャラ画像の名寄せ（scripts/lib/charMatch.ts）----
+{
+  // 名前の正規化: 空白・中黒・ハイフン類・大小の揺れを吸収する
+  assert(normName("マイト・ガイ") === normName("マイト ガイ"), "中黒と空白の揺れを吸収");
+  assert(normName("NARUTO -ナルト-") === normName("NARUTO-ナルト-"), "ハイフン前後の空白を吸収");
+  assert(normName("ＡＢＣ") === normName("abc"), "全角英字と大小を吸収（NFKC＋小文字化）");
+
+  // Media 照合は緩く（表記ゆれで作品ごと全滅しないように）。誤マッチはキャラ名の第二関門で落ちる。
+  assert(mediaTitleMatches("銀魂", ["銀魂"]), "完全一致");
+  assert(mediaTitleMatches("NARUTO-ナルト-", ["NARUTO -ナルト-"]), "空白の揺れがあっても一致");
+  assert(mediaTitleMatches("ストリートファイターシリーズ", ["ストリートファイターII"]), "「シリーズ」を落として包含一致");
+  assert(!mediaTitleMatches("咲-Saki-", ["ヒカルの碁"]), "無関係の作品は不一致");
+  assert(!mediaTitleMatches("俺", ["俺物語!!"]), "3文字未満の包含は不一致（誤爆防止）");
+
+  // キャラ名は正規化後の完全一致のみ（native → alternative → full）
+  assert(charNameMatches("坂田銀時", { native: "坂田銀時" }), "native の完全一致");
+  assert(charNameMatches("マイト・ガイ", { native: "マイト ガイ" }), "表記ゆれ越しの完全一致");
+  assert(charNameMatches("チョンユエ", { native: "重岳", alternative: ["チョンユエ", "Chongyue"] }), "alternative でも一致");
+  assert(!charNameMatches("ルフィ", { native: "モンキー・D・ルフィ" }), "部分一致は不採用（別キャラ誤爆防止）");
+  assert(!charNameMatches("", { native: "誰か" }), "空文字は不一致");
+  console.log("[charMatch] OK");
 }
 
 // ---- イニシャル（写真が無いカードの見た目。一覧の約4割に出る主要な表示）----

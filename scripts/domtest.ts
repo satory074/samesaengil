@@ -46,7 +46,10 @@ const SAMPLE: DayData = {
     },
   ],
   animals: [],
-  characters: [{ name: "テストキャラ", work: "TEST", color: "#ff0000" }],
+  characters: [
+    { name: "テストキャラ", work: "TEST", color: "#ff0000" },
+    { name: "画像キャラ", work: "TEST2", color: "#00ff00", image: "https://s4.anilist.co/file/x.png" },
+  ],
   anniversaries: [{ label: "靴の記念日", desc: "日本記念日協会" }, { label: "サイコの日" }],
   events: [{ year: 2013, text: "新幹線200系電車引退。" }],
   updatedAt: "2026-06-30T00:00:00Z",
@@ -270,6 +273,13 @@ function submit(dom: JSDOM, root: Element): void {
 
   // キャラ・記念日
   assert(result.querySelector(".chip .cname")!.textContent === "テストキャラ", "キャラチップ");
+  // キャラ画像: image ありは img.cimg（背面に色ドット＝onerror 時のフォールバック）、無しは色ドットのみ
+  const chips = [...result.querySelectorAll(".chip")];
+  const withImg = chips.find((c) => c.querySelector(".cname")?.textContent === "画像キャラ")!;
+  assert(!!withImg.querySelector("img.cimg"), "image ありキャラはサムネ img が出る");
+  assert(!!withImg.querySelector(".dot.has-img"), "サムネの背面に色ドットが残る（読み込み失敗時のフォールバック）");
+  const noImg = chips.find((c) => c.querySelector(".cname")?.textContent === "テストキャラ")!;
+  assert(!noImg.querySelector("img.cimg") && !!noImg.querySelector(".dot"), "image なしキャラは色ドットのみ");
   assert([...result.querySelectorAll(".anniv")].some((a) => a.textContent === "靴の記念日"), "記念日チップ");
   assert(result.querySelector(".events .yr")!.textContent === "2013年", "できごと年");
 
