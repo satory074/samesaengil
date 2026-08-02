@@ -261,7 +261,7 @@ export function oshiHtml(people: Person[], chars: Character[]): string {
   const vtuberBlock = vtubers.length
     ? `<div class="oshi-block"><h3>VTuber${
         vtubers.length > VTUBER_VISIBLE ? `（先頭${VTUBER_VISIBLE}人／${vtubers.length}人）` : `（${vtubers.length}人）`
-      }</h3><div class="char-list">${vtubers.slice(0, VTUBER_VISIBLE).map(charChip).join("")}</div>${
+      }</h3><div class="char-list">${vtubers.slice(0, VTUBER_VISIBLE).map((c) => charChip(c)).join("")}</div>${
         vtubers.length > VTUBER_VISIBLE
           ? `<p class="credit">残りは「同じ誕生日のキャラ」の一覧に含まれています。</p>`
           : ""
@@ -346,7 +346,7 @@ export function charactersHtml(chars: Character[]): string {
   if (chars.length === 0) {
     return section("🦸", "同じ誕生日のキャラ", `<p class="empty">登録キャラに同じ誕生日はいませんでした。</p>`);
   }
-  const visible = chars.slice(0, CHARS_VISIBLE).map(charChip).join("");
+  const visible = charRows(chars.slice(0, CHARS_VISIBLE), null);
   // 残りは「もっと見る」クリック時に main.ts が charactersMoreHtml で遅延描画（初期 DOM を軽く保つ）。
   const restCount = Math.max(0, chars.length - CHARS_VISIBLE);
   const more = restCount
@@ -356,30 +356,54 @@ export function charactersHtml(chars: Character[]): string {
   return section("🦸", "同じ誕生日のキャラ", body, chars.length);
 }
 
-/** 「もっと見る」で追加描画する残りチップ（先頭 CHARS_VISIBLE 件を除く）。 */
+/**
+ * 「もっと見る」で追加描画する残り（先頭 CHARS_VISIBLE 件を除く）。
+ * 境界で作品が続く場合に見出しを重複させないよう、直前の作品名を引き継ぐ。
+ */
 export function charactersMoreHtml(chars: Character[]): string {
-  return chars.slice(CHARS_VISIBLE).map(charChip).join("");
+  return charRows(chars.slice(CHARS_VISIBLE), chars[CHARS_VISIBLE - 1]?.work ?? null);
+}
+
+/**
+ * キャラ一覧は作品の人気順ソートで同一作品が隣接している（aggregate の rankCharacters）ので、
+ * 作品が変わる行の前に見出しを差し込むだけでグループ表示になる。チップ側の作品名表示は省く
+ * （1行ごとに作品名を繰り返さない）。
+ */
+function charRows(chars: Character[], prevWork: string | null): string {
+  let prev = prevWork;
+  const rows: string[] = [];
+  for (const c of chars) {
+    if (c.work !== prev) {
+      rows.push(`<div class="char-work-head">${esc(c.work || "その他")}</div>`);
+      prev = c.work;
+    }
+    rows.push(charChip(c, false));
+  }
+  return rows.join("");
 }
 
 /**
  * キャラ 1 件。画像（AniList 直リンク）があれば色ドットの位置に 32px 角サムネを重ねる。
  * ドットを背面に残したまま img を被せるので、読み込み失敗（onerror で除去）時は色ドットに戻る。
  */
-function charChip(c: Character): string {
+function charChip(c: Character, withWork = true): string {
   const img = c.image
     ? `<img class="cimg" src="${esc(c.image)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
     : "";
   const dot = `<span class="dot${img ? " has-img" : ""}" style="background:${esc(c.color ?? "#8b5cf6")}">${img}</span>`;
-  const inner = `${dot}<span class="cname">${esc(c.name)}</span><span class="cwork">${esc(c.work)}</span>`;
+  const work = withWork ? `<span class="cwork">${esc(c.work)}</span>` : "";
+  const inner = `${dot}<span class="cname">${esc(c.name)}</span>${work}`;
   return c.url
     ? `<a class="chip" href="${esc(c.url)}" target="_blank" rel="noopener">${inner}</a>`
     : `<div class="chip">${inner}</div>`;
 }
 
-/* ---------- 今日は何の日 ---------- */
-export function anniversaryHtml(anniversaries: Anniversary[], events: DayEvent[]): string {
+/* ---------- M月D日は何の日 ---------- */
+// 「今日」ではなく選択した誕生日の記念日・できごとなので、見出しに日付を入れる。
+export function anniversaryHtml(input: YMD, anniversaries: Anniversary[], events: DayEvent[]): string {
+  const title = `${input.month}月${input.day}日は何の日`;
   if (anniversaries.length === 0 && events.length === 0) {
-    return section("📅", "今日は何の日", `<p class="empty">データが見つかりませんでした。</p>`);
+    return section("📅", title, `<p class="empty">データが見つかりませんでした。</p>`);
   }
   const chips = anniversaries
     .map((a) => `<span class="anniv" title="${esc(a.desc ?? "")}">${esc(a.label)}</span>`)
@@ -390,7 +414,7 @@ export function anniversaryHtml(anniversaries: Anniversary[], events: DayEvent[]
         .join("")}</ul>`
     : "";
   const body = `${chips ? `<div class="anniv-list">${chips}</div>` : ""}${evs}`;
-  return section("📅", "今日は何の日", body);
+  return section("📅", title, body);
 }
 
 /* ---------- 共有 ---------- */
@@ -436,12 +460,13 @@ export function resultHtml(
     summaryHtml(input, today) +
     funFactsHtml(input, today) +
     bornYearHtml(input, year) +
+    // 記念日は飲み会ネタとして鮮度が高いのに、数百件のキャラ一覧の下だと誰も辿り着けないのでここに置く。
+    anniversaryHtml(input, day.anniversaries, day.events) +
     peopleHtml(day.people) +
     oshiHtml(day.people, day.characters) +
     sameYearHtml(input, day, cohort) +
     animalsHtml(day.animals) +
     charactersHtml(day.characters) +
-    anniversaryHtml(day.anniversaries, day.events) +
     shareHtml()
   );
 }

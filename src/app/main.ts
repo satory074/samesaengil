@@ -5,7 +5,7 @@ import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
 import { cohortYearOf, exactMatchesOf, withoutExact } from "../lib/peers";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
-import { errorHtml, loadingHtml, resultHtml } from "./render";
+import { loadingHtml, resultHtml } from "./render";
 import { wireMoreButtons } from "./more";
 
 interface Refs {
@@ -123,12 +123,32 @@ export function boot(root: HTMLElement): void {
     }
   }
 
-  async function diagnose(): Promise<void> {
+  /**
+   * フォーム直下のエラー表示。#result を使わないのは、不正日付のたびに前回の診断結果と
+   * URL（?d=）を消してしまい、画面と URL が食い違っていたため。結果はそのまま残す。
+   */
+  function showFormError(msg: string): void {
+    let el = root.querySelector<HTMLElement>(".form-error");
+    if (!el) {
+      el = root.ownerDocument.createElement("p");
+      el.className = "error-msg form-error";
+      el.setAttribute("role", "alert"); // #result の aria-live の外に出したぶん自前で通知
+      refs.form.insertAdjacentElement("afterend", el);
+    }
+    el.textContent = msg;
+  }
+
+  function clearFormError(): void {
+    root.querySelector(".form-error")?.remove();
+  }
+
+  async function diagnose(opts: { scroll?: boolean } = {}): Promise<void> {
     const input = readInput();
     if (!isValidDate(input.year, input.month, input.day)) {
-      refs.result.innerHTML = errorHtml("その日付は存在しないみたい。月末の日付を確認してね。");
+      showFormError("その日付は存在しないみたい。月末の日付を確認してね。");
       return;
     }
+    clearFormError();
     syncUrl(input);
     refs.result.innerHTML = loadingHtml();
     const key = dayKey(input.month, input.day);
@@ -145,6 +165,12 @@ export function boot(root: HTMLElement): void {
     const cohort = needsCohortFile ? cohortRaw : year;
     const day = normalizeDay(key, dayRaw);
     refs.result.innerHTML = resultHtml(input, todayYMD(), day, year, cohort);
+    if (opts.scroll) {
+      // ボタンで診断したときだけ結果へスクロール（モバイルでは結果がフォームの下に隠れて
+      // 出たことに気づきにくい）。?d= 付きロード時は勝手に飛ばさない。
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      refs.result.scrollIntoView?.({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    }
     lastPeople = day.people;
     lastCharacters = day.characters;
     // render 側と同じ切り方（⭐ に出した人はカテゴリ側に出さない）。
@@ -162,7 +188,7 @@ export function boot(root: HTMLElement): void {
   // ---- イベント配線 ----
   refs.form.addEventListener("submit", (e) => {
     e.preventDefault();
-    void diagnose();
+    void diagnose({ scroll: true });
   });
   refs.month.addEventListener("change", syncDayOptions);
   refs.year.addEventListener("change", syncDayOptions);

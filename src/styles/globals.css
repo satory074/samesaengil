@@ -417,7 +417,7 @@ a:hover {
   transform: translateY(-1px);
 }
 .credit {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-dim);
   margin-top: 12px;
 }
@@ -427,6 +427,16 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* 作品ごとのグループ見出し（一覧は作品の人気順ソートで同一作品が隣接している）。 */
+.char-work-head {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+.char-work-head:first-child {
+  margin-top: 0;
 }
 .chip {
   display: flex;
@@ -674,5 +684,15 @@ a:hover {
     min-width: 66px;
     font-size: 16px;
     padding: 9px 10px;
+  }
+}
+
+/* OS の「視差効果を減らす」設定を尊重（hover の持ち上がり・色のトランジションを止める）。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
   }
 }

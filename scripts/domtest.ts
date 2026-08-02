@@ -291,12 +291,21 @@ function submit(dom: JSDOM, root: Element): void {
   assert(dom.window.location.search === "?d=1995-03-15", `URLに ?d= が入る（実際: ${dom.window.location.search}）`);
   console.log("[dom] 通常フロー OK");
 
-  // ---- 2) 不正日付 → エラー表示 ----
+  // ---- 2) 不正日付 → フォーム直下にエラー、前回の結果と URL は保持 ----
   setSelect(root, "#in-month", "2");
   setSelect(root, "#in-day", "30");
   submit(dom, root);
   await tick();
-  assert(!!root.querySelector("#result .error-msg"), "2/30 はエラーメッセージ");
+  assert(!!root.querySelector(".form-error"), "2/30 はエラーメッセージ（フォーム直下）");
+  assert(!!root.querySelector("#result .result-head"), "不正日付でも前回の結果は消えない");
+  assert(dom.window.location.search === "?d=1995-03-15", "不正日付では URL を書き換えない");
+  // 正しい日付で再診断するとエラーは消える
+  setSelect(root, "#in-month", "3");
+  setSelect(root, "#in-day", "15");
+  submit(dom, root);
+  await tick();
+  await tick();
+  assert(!root.querySelector(".form-error"), "有効な日付で再診断するとエラーが消える");
   console.log("[dom] 不正日付ガード OK");
 }
 
