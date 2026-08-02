@@ -236,25 +236,57 @@ a:hover {
   color: transparent;
 }
 
-/* ---- セクション ---- */
+/* ---- セクション（details。初期は全閉） ---- */
 .section {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 18px 18px 20px;
+  padding: 16px 18px;
   margin: 16px 0;
 }
-.section > h2 {
-  margin: 0 0 14px;
+.section[open] {
+  padding-bottom: 20px;
+}
+.section > summary {
+  cursor: pointer;
+  list-style: none; /* 既定の ▶ マーカー除去 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+.section > summary::-webkit-details-marker {
+  display: none; /* Safari */
+}
+.section summary h2 {
+  margin: 0;
   font-size: 18px;
   font-weight: 900;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.section > h2 .emoji {
+.section summary h2 .emoji {
   font-size: 22px;
+}
+.section .chev {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  transition: transform 0.15s ease;
+}
+.section .chev::before {
+  content: "▾";
+}
+/* count がある時は count 側の margin-left:auto に譲る（両方 auto だと count が中央に浮く） */
+.section .count + .chev {
+  margin-left: 8px;
+}
+.section[open] > summary .chev {
+  transform: rotate(180deg);
+}
+.section-body {
+  margin-top: 14px;
 }
 .section .count {
   font-size: 12px;
@@ -563,6 +595,111 @@ a:hover {
 }
 .song-spotify:hover {
   background: #1ed760;
+}
+.song-cover {
+  display: block;
+  width: 112px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin: 8px auto 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* その年の週間1位ぜんぶ（ネスト details） */
+.chart-list {
+  margin-top: 12px;
+}
+.chart-list > summary {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--purple);
+  cursor: pointer;
+  list-style: none;
+}
+.chart-list > summary::-webkit-details-marker {
+  display: none;
+}
+.chart-weeks {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.chart-weeks .cw {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 6px 4px;
+  border-top: 1px dashed var(--border);
+}
+.chart-weeks .cw-date {
+  font-weight: 800;
+  color: var(--pink);
+  flex: none;
+  min-width: 46px;
+}
+/* 小ジャケ: プレースホルダ背面＋img 重ね（.dot.has-img と同じ流儀。onerror で img が消えると 🎵 に戻る） */
+.chart-weeks .cw-art {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--accent-grad-soft);
+}
+.chart-weeks .cw-art::before {
+  content: "🎵";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.chart-weeks .cw-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.chart-weeks .cw-song {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+.chart-weeks .cw-title {
+  font-weight: 800;
+}
+.chart-weeks .cw-title a {
+  color: inherit;
+}
+.chart-weeks .cw-artist {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.chart-weeks .cw-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--pink);
+  background: var(--pink-soft);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.chart-weeks .cw-listen {
+  margin-left: auto;
+  flex: none;
+  text-decoration: none;
+}
+.chart-weeks .cw.is-birth {
+  background: var(--pink-soft);
+  border-radius: var(--radius-sm);
+  border-top-color: transparent;
+  padding: 6px 8px;
 }
 .year-block {
   margin-top: 16px;

@@ -83,6 +83,8 @@ export interface ChartWeek {
   url: string;
   /** Spotify の曲ページ URL。未解決/Spotify 未収録なら欠落（表示側は検索 URL にフォールバック）。 */
   spotify?: string;
+  /** Spotify のアルバムジャケット（~300px）。未解決なら欠落（表示側はプレースホルダ）。 */
+  cover?: string;
 }
 
 /**

@@ -1,8 +1,9 @@
-// オリコン週間1位の曲を Spotify の曲ページに解決する（Client Credentials フロー）。
+// オリコン週間1位の曲を Spotify の曲ページ＋ジャケット画像に解決する（Client Credentials フロー）。
 //
 // 資格情報（SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET）が無ければ解決はスキップし、
 // キャッシュ済みの分だけ埋める＝表示側は検索 URL にフォールバックする（他ソースと同じ graceful degradation）。
-// 解決結果は src/data/spotify.json（"曲名|アーティスト" -> URL、"" は「Spotify に無い」の負キャッシュ）。
+// 解決結果は src/data/spotify.json（"曲名|アーティスト" -> {url, cover?}、{url:""} は「Spotify に無い」の負キャッシュ。
+// 旧スキーマの string 値（URL のみ）は互換読みし、SPOTIFY_RECHECK=1 で cover 込みに引き直せる）。
 import { fetchJson, HttpError, USER_AGENT } from "../lib/util";
 import type { ChartWeek } from "../../src/lib/types";
 
@@ -23,6 +24,17 @@ export function hasSpotifyCreds(): boolean {
 /** キャッシュキー。 */
 export function songKey(w: ChartWeek): string {
   return `${w.title}|${w.artist}`;
+}
+
+/** キャッシュ値。url が空文字なら「Spotify に無い」の負キャッシュ。 */
+export interface SpotifyEntry {
+  url: string;
+  cover?: string;
+}
+
+/** 旧スキーマ（値が URL の string）の互換読み。 */
+export function entryOf(v: string | SpotifyEntry): SpotifyEntry {
+  return typeof v === "string" ? { url: v } : v;
 }
 
 // ---- 共有セマフォ（Wikipedia 用のグローバルゲートとは別ホストなので gate:false で外し、ここで絞る）----
@@ -82,7 +94,12 @@ function norm(s: string): string {
 
 interface SearchResponse {
   tracks?: {
-    items?: { name?: string; external_urls?: { spotify?: string }; artists?: { name?: string }[] }[];
+    items?: {
+      name?: string;
+      external_urls?: { spotify?: string };
+      artists?: { name?: string }[];
+      album?: { images?: { url?: string; width?: number }[] };
+    }[];
   };
 }
 
@@ -93,8 +110,21 @@ function loosely(a: string, b: string): boolean {
   return (a.length >= 3 && b.includes(a)) || (b.length >= 3 && a.includes(b));
 }
 
-/** 検索結果から曲を選ぶ。合致なしは ""（Spotify に無い＝負キャッシュ）。 */
-function pickTrack(items: NonNullable<NonNullable<SearchResponse["tracks"]>["items"]>, w: ChartWeek): string {
+/** アルバム画像から表示用の1枚を選ぶ（~300px を狙う。Spotify は通常 640/300/64 を返す）。 */
+export function pickCover(images: { url?: string; width?: number }[] | undefined): string {
+  if (!images?.length) return "";
+  const sized = images.filter((i) => i.width != null);
+  const best = sized.length
+    ? sized.reduce((a, b) => (Math.abs((a.width ?? 0) - 300) <= Math.abs((b.width ?? 0) - 300) ? a : b))
+    : (images[1] ?? images[0]);
+  return best?.url ?? "";
+}
+
+/** 検索結果から曲を選ぶ。合致なしは {url:""}（Spotify に無い＝負キャッシュ）。 */
+export function pickTrack(
+  items: NonNullable<NonNullable<SearchResponse["tracks"]>["items"]>,
+  w: ChartWeek,
+): SpotifyEntry {
   const t = norm(w.title);
   const a = norm(w.artist);
   for (const it of items) {
@@ -102,13 +132,16 @@ function pickTrack(items: NonNullable<NonNullable<SearchResponse["tracks"]>["ite
     const artists = (it.artists ?? []).map((x) => norm(x.name ?? ""));
     // アーティスト未記載の週（wikitext の揺れ）は曲名一致だけで採る。
     const artistOk = !a || artists.some((x) => loosely(x, a));
-    if (titleOk && artistOk) return it.external_urls?.spotify ?? "";
+    if (titleOk && artistOk) {
+      const cover = pickCover(it.album?.images);
+      return { url: it.external_urls?.spotify ?? "", ...(cover ? { cover } : {}) };
+    }
   }
-  return "";
+  return { url: "" };
 }
 
-/** 曲を検索して曲ページ URL を返す。見つからなければ ""。 */
-async function searchTrack(w: ChartWeek): Promise<string> {
+/** 曲を検索して {url, cover?} を返す。見つからなければ {url:""}。 */
+async function searchTrack(w: ChartWeek): Promise<SpotifyEntry> {
   // track:"..." artist:"..." のフィールド指定は邦楽で取りこぼすので、フリーテキストで引いて結果側で照合する。
   const q = `${w.title} ${w.artist}`.trim();
   const url = `${SEARCH_URL}?q=${encodeURIComponent(q)}&type=track&market=JP&limit=5`;
@@ -126,9 +159,9 @@ async function searchTrack(w: ChartWeek): Promise<string> {
 }
 
 // 同じ曲が複数週・複数年で 1 位になるので、実行中の重複解決をまとめる。
-// 値: URL / ""（無い） / null（取得失敗＝キャッシュしない）
-const inflight = new Map<string, Promise<string | null>>();
-function resolveOnce(key: string, w: ChartWeek): Promise<string | null> {
+// 値: {url, cover?} / {url:""}（無い） / null（取得失敗＝キャッシュしない）
+const inflight = new Map<string, Promise<SpotifyEntry | null>>();
+function resolveOnce(key: string, w: ChartWeek): Promise<SpotifyEntry | null> {
   let p = inflight.get(key);
   if (!p) {
     p = (async () => {
@@ -147,12 +180,12 @@ function resolveOnce(key: string, w: ChartWeek): Promise<string | null> {
 }
 
 /**
- * 未キャッシュの曲だけ Spotify に問い合わせ、week.spotify を埋める（cache はその場で更新）。
- * SPOTIFY_RECHECK=1 で「見つからなかった」負キャッシュも引き直す。
+ * 未キャッシュの曲だけ Spotify に問い合わせ、week.spotify / week.cover を埋める（cache はその場で更新）。
+ * SPOTIFY_RECHECK=1 で「見つからなかった」負キャッシュと、cover を持たない旧 string 値も引き直す。
  */
 export async function attachSpotify(
   weeks: ChartWeek[],
-  cache: Record<string, string>,
+  cache: Record<string, string | SpotifyEntry>,
   stats: SpotifyStats,
 ): Promise<void> {
   const creds = hasSpotifyCreds();
@@ -161,19 +194,22 @@ export async function attachSpotify(
     weeks.map(async (w) => {
       if (!w.title) return;
       const key = songKey(w);
-      let url: string | undefined = cache[key];
-      if (creds && (url === undefined || (url === "" && recheck))) {
+      const raw = cache[key];
+      let entry: SpotifyEntry | undefined = raw === undefined ? undefined : entryOf(raw);
+      const stale = entry !== undefined && (entry.url === "" || typeof raw === "string");
+      if (creds && (entry === undefined || (stale && recheck))) {
         const found = await resolveOnce(key, w);
         if (found === null) {
           stats.failed++;
           return; // 失敗した曲は spotify 未設定のまま＝表示側は検索 URL
         }
         cache[key] = found;
-        if (found) stats.resolved++;
+        if (found.url) stats.resolved++;
         else stats.missing++;
-        url = found;
+        entry = found;
       }
-      if (url) w.spotify = url;
+      if (entry?.url) w.spotify = entry.url;
+      if (entry?.cover) w.cover = entry.cover;
     }),
   );
 }

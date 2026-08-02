@@ -3,6 +3,7 @@
 // 2) share（日付クエリの encode/decode・妥当性判定）
 // 3) year / oshi / peers（生まれた年・推し・同じ学年）
 // 4) portrait / initials（顔写真の照合ロジックと、写真が無いカードの見た目）
+// 5) spotify（曲の照合・ジャケット選択・キャッシュ互換読み）
 import {
   ageOf,
   birthFlowerOf,
@@ -47,6 +48,7 @@ import {
   sourceFileFromThumbUrl,
 } from "./lib/portrait";
 import { charNameMatches, mediaTitleMatches, normName } from "./lib/charMatch";
+import { entryOf, pickCover, pickTrack } from "./sources/spotify";
 import { initials } from "../src/app/render";
 import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
@@ -204,7 +206,7 @@ function assert(cond: boolean, msg: string): void {
     highlights: ["阪神淡路大震災"],
     chartWeeks: [
       { month: 1, day: 2, title: "たぶんオーライ", artist: "SMAP", url: "" },
-      { month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "" },
+      { month: 3, day: 13, title: "ロビンソン", artist: "スピッツ", url: "", cover: "https://i.scdn.co/image/robinson" },
       { month: 3, day: 20, title: "その先の週", artist: "誰か", url: "" },
     ],
     prevYearLast: { month: 12, day: 26, title: "前年最終週の曲", artist: "前年", url: "" },
@@ -214,6 +216,7 @@ function assert(cond: boolean, msg: string): void {
 
   // 「生まれた瞬間に1位だった曲」= 誕生日以前で最も近い週
   assert(songForBirthday({ month: 3, day: 15 }, y)?.title === "ロビンソン", "3/15 は 3/13 付の週");
+  assert(songForBirthday({ month: 3, day: 15 }, y)?.cover === "https://i.scdn.co/image/robinson", "週の要素参照ごと返る（cover が落ちない）");
   assert(songForBirthday({ month: 3, day: 13 }, y)?.title === "ロビンソン", "発表日当日はその週");
   assert(songForBirthday({ month: 3, day: 19 }, y)?.title === "ロビンソン", "次の週の前日まではその週");
   assert(songForBirthday({ month: 3, day: 20 }, y)?.title === "その先の週", "次の発表日からは次の週");
@@ -244,6 +247,43 @@ function assert(cond: boolean, msg: string): void {
     "アーティスト不明でも末尾に余計な空白を残さない",
   );
   console.log("[year] OK");
+}
+
+// ---- 8b) Spotify 解決（照合・ジャケット選択・キャッシュ互換読み） ----
+{
+  const week = (title: string, artist: string) => ({ month: 1, day: 1, title, artist, url: "" });
+  const images = [
+    { url: "https://img/640", width: 640 },
+    { url: "https://img/300", width: 300 },
+    { url: "https://img/64", width: 64 },
+  ];
+
+  // pickCover: ~300px を選ぶ／width 欠落は2枚目フォールバック／無ければ ""
+  assert(pickCover(images) === "https://img/300", "640/300/64 からは 300 を選ぶ");
+  assert(pickCover([{ url: "https://img/a" }, { url: "https://img/b" }]) === "https://img/b", "width 欠落は2枚目");
+  assert(pickCover([{ url: "https://img/only" }]) === "https://img/only", "1枚しか無ければそれ");
+  assert(pickCover([]) === "" && pickCover(undefined) === "", "画像なしは空文字");
+
+  // pickTrack: 合致したら {url, cover}、合致なしは {url:""}（負キャッシュ）
+  const item = {
+    name: "ロビンソン",
+    external_urls: { spotify: "https://open.spotify.com/track/abc" },
+    artists: [{ name: "スピッツ" }],
+    album: { images },
+  };
+  const hit = pickTrack([item], week("ロビンソン", "スピッツ"));
+  assert(hit.url === "https://open.spotify.com/track/abc" && hit.cover === "https://img/300", "合致で url＋cover");
+  assert(pickTrack([item], week("別の曲", "スピッツ")).url === "", "曲名不一致は負キャッシュ");
+  assert(pickTrack([item], week("ロビンソン", "")).url !== "", "アーティスト未記載の週は曲名一致だけで採る");
+  const noCover = pickTrack([{ ...item, album: undefined }], week("ロビンソン", "スピッツ"));
+  assert(noCover.url !== "" && !("cover" in noCover), "album 画像が無ければ cover キー自体を付けない");
+
+  // entryOf: 旧 string 値（URL のみ）の互換読み
+  assert(entryOf("https://u").url === "https://u", "旧 string 値は {url} に読み替え");
+  assert(entryOf("").url === "", "旧の負キャッシュ '' も読める");
+  const obj = { url: "https://u", cover: "https://c" };
+  assert(entryOf(obj) === obj, "新スキーマは素通し");
+  console.log("[spotify] OK");
 }
 
 // ---- 9) 推し（K-POP・VTuber の再カット） ----

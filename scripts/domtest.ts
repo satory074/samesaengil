@@ -74,6 +74,14 @@ const SAMPLE_YEAR: YearData = {
   ],
   highlights: ["阪神淡路大震災"],
   chartWeeks: [
+    // spotify/cover 無し＝検索 URL＋🎵 プレースホルダにフォールバックすることの証明用
+    {
+      month: 1,
+      day: 2,
+      title: "たぶんオーライ",
+      artist: "SMAP",
+      url: "",
+    },
     {
       month: 3,
       day: 13,
@@ -81,6 +89,7 @@ const SAMPLE_YEAR: YearData = {
       artist: "スピッツ",
       url: "https://ja.wikipedia.org/wiki/x",
       spotify: "https://open.spotify.com/track/abc123",
+      cover: "https://i.scdn.co/image/robinson300",
     },
   ],
   prevYearLast: null,
@@ -195,6 +204,14 @@ function submit(dom: JSDOM, root: Element): void {
   assert(!!result.querySelector(".result-head"), "結果ヘッダがある");
   assert(result.querySelector(".result-head")!.textContent!.includes("3月15日"), "ヘッダに日付");
 
+  // 折りたたみ: 全セクションが details で初期は全閉（ヘッダは details の外）
+  const sections = [...result.querySelectorAll("details.section")];
+  assert(sections.length >= 5, `セクションは details（実際: ${sections.length}個）`);
+  assert(sections.every((d) => !d.hasAttribute("open")), "初期状態は全セクション閉");
+  assert(!!result.querySelector("details.section > summary h2"), "見出しは summary 内の h2");
+  assert(!!result.querySelector("details.section summary .chev"), "シェブロンがある");
+  assert(!result.querySelector(".result-head")!.closest("details"), "結果ヘッダは折りたたみの外");
+
   // サマリー: 星座（うお座）が決定的に出る
   const facts = [...result.querySelectorAll(".fact .v")].map((e) => e.textContent);
   assert(facts.some((f) => f?.includes("うお座")), `星座うお座が出る（実際: ${facts.join(" / ")}）`);
@@ -217,9 +234,36 @@ function submit(dom: JSDOM, root: Element): void {
     result.querySelector(".song-spotify")!.getAttribute("href") === "https://open.spotify.com/track/abc123",
     "Spotify の曲ページへのリンク",
   );
+  assert(
+    result.querySelector(".song .song-cover")!.getAttribute("src") === "https://i.scdn.co/image/robinson300",
+    "メイン曲のジャケット",
+  );
   const yearTexts = [...result.querySelectorAll(".year-events li")].map((e) => e.textContent);
   assert(yearTexts.some((t) => t?.includes("誕生日ぴったりのできごと")), "誕生日ぴったりのできごと");
   assert(yearTexts.some((t) => t?.includes("阪神淡路大震災")), "その年の主な出来事");
+
+  // その年の週間1位一覧（ネスト details）。誕生週(3/13)だけハイライト＋バッジ。
+  const chartList = result.querySelector(".chart-list")!;
+  assert(!!chartList, "週間1位一覧がある");
+  assert(chartList.querySelector("summary")!.textContent!.includes("2週"), "一覧 summary に週数");
+  const cws = [...chartList.querySelectorAll(".cw")];
+  assert(cws.length === 2, `一覧は2行（実際: ${cws.length}）`);
+  const birthRow = cws.find((r) => r.classList.contains("is-birth"))!;
+  assert(!!birthRow && birthRow.textContent!.includes("ロビンソン"), "誕生週の行がハイライト");
+  assert(!!birthRow.querySelector(".cw-badge"), "誕生週バッジ");
+  assert(birthRow.querySelector(".cw-img")!.getAttribute("src") === "https://i.scdn.co/image/robinson300", "一覧の小ジャケ");
+  assert(
+    birthRow.querySelector(".cw-listen")!.getAttribute("href") === "https://open.spotify.com/track/abc123",
+    "spotify ありは曲ページへ",
+  );
+  const otherRow = cws.find((r) => !r.classList.contains("is-birth"))!;
+  assert(otherRow.textContent!.includes("たぶんオーライ"), "他の週も一覧に出る");
+  assert(!otherRow.querySelector(".cw-badge"), "他の週にバッジは無い");
+  assert(!otherRow.querySelector(".cw-img") && !!otherRow.querySelector(".cw-art"), "cover 無しはプレースホルダのみ");
+  assert(
+    otherRow.querySelector(".cw-listen")!.getAttribute("href")!.includes("/search/"),
+    "spotify 無しは検索 URL にフォールバック",
+  );
 
   // 有名人カード（「同じ誕生日の有名人」セクションのグリッド＝data-people-grid に限定して数える）
   const pcards = result.querySelectorAll("[data-people-grid] .pcard");
@@ -254,7 +298,7 @@ function submit(dom: JSDOM, root: Element): void {
     "⭐ カードは生年月日を出す（学年は暦年をまたぐので年まで）",
   );
   // ⭐ に出した人はカテゴリ側に出ない（同じセクション内で二重に出さない）
-  const sameYearSection = result.querySelector(".year-people-block")!.closest("section")!;
+  const sameYearSection = result.querySelector(".year-people-block")!.closest(".section")!;
   const dupes = [...sameYearSection.querySelectorAll(".pcard .name")].filter((n) => n.textContent === "同い年さん");
   assert(dupes.length === 1, `同い年さんはセクション内に1回だけ（実際: ${dupes.length}）`);
   // 芸能 14人 → 初期12枚＋もっと見る、スポーツ 2人 → ボタン無し
@@ -365,7 +409,7 @@ function submit(dom: JSDOM, root: Element): void {
   // 生年非公表（year=0）の表示
   assert([...result.querySelectorAll(".pcard .meta")].some((m) => m.textContent!.includes("生年非公表")), "生年非公表を表示");
   // 動物セクション
-  assert(!!result.querySelector("section h2")!, "セクションがある");
+  assert(!!result.querySelector(".section h2")!, "セクションがある");
   assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物セクションがある");
   // 年データ 404 のときは「生まれた年」セクションごと非表示（壊れない）
   assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年")), "年データ無しなら年セクションは出ない");

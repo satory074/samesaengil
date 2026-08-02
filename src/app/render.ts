@@ -1,6 +1,6 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
-import type { Anniversary, Character, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
+import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   CAT_LABELS,
@@ -151,6 +151,7 @@ export function bornYearHtml(input: YMD, year: YearData | null): string {
   const songBlock = song
     ? `<div class="song">
         <div class="song-k">生まれた週のオリコン1位</div>
+        ${song.cover ? `<img class="song-cover" src="${esc(song.cover)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />` : ""}
         <div class="song-title">${
           song.url
             ? `<a href="${esc(song.url)}" target="_blank" rel="noopener">${esc(song.title)}</a>`
@@ -183,8 +184,31 @@ export function bornYearHtml(input: YMD, year: YearData | null): string {
   return section(
     "🎂",
     `あなたが生まれた年（${year.year}年）`,
-    `${songBlock}${birthdayBlock}${monthBlock}${highlightBlock}${credit}`,
+    `${songBlock}${chartListHtml(year, song)}${birthdayBlock}${monthBlock}${highlightBlock}${credit}`,
   );
+}
+
+/**
+ * その年の週間1位ぜんぶ（ネスト details・初期閉）。
+ * 誕生週の判定は**参照比較**——songForBirthday は chartWeeks の要素そのものか prevYearLast を
+ * 返すので、month/day 比較だと年始生まれ（song=前年末週）で当年の同月日週を誤ハイライトする。
+ * 参照比較なら prevYearLast は一覧に無い＝自然にハイライト無しに落ちる。
+ */
+function chartListHtml(year: YearData, song: ChartWeek | null): string {
+  if (!year.chartWeeks.length) return "";
+  const rows = year.chartWeeks
+    .map((w) => {
+      const isBirth = w === song;
+      const img = w.cover
+        ? `<img class="cw-img" src="${esc(w.cover)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+        : "";
+      const title = w.url
+        ? `<a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>`
+        : esc(w.title);
+      return `<li class="cw${isBirth ? " is-birth" : ""}"><span class="cw-date">${w.month}/${w.day}</span><span class="cw-art">${img}</span><span class="cw-song"><span class="cw-title">${title}</span><span class="cw-artist">${esc(w.artist)}</span></span>${isBirth ? `<span class="cw-badge">生まれた週</span>` : ""}<a class="cw-listen" href="${esc(spotifyUrl(w))}" target="_blank" rel="noopener" aria-label="Spotifyで聴く">🎧</a></li>`;
+    })
+    .join("");
+  return `<details class="chart-list"><summary>📈 ${year.year}年の週間1位をぜんぶ見る（${year.chartWeeks.length}週）</summary><ol class="chart-weeks">${rows}</ol></details>`;
 }
 
 /* ---------- 有名人 ---------- */
@@ -430,9 +454,11 @@ export function shareHtml(): string {
 }
 
 /* ---------- 共通 ---------- */
+// 折りたたみ（初期は全閉）。class="section" は more.ts の .closest(".section") が依存するので維持。
+// シェブロンは ::after ではなく明示 span——count の margin-left:auto と共存させるため（CSS の .count + .chev 参照）。
 function section(emoji: string, title: string, body: string, count?: number): string {
   const c = count != null ? `<span class="count">${count}件</span>` : "";
-  return `<section class="section"><h2><span class="emoji">${emoji}</span>${esc(title)}${c}</h2>${body}</section>`;
+  return `<details class="section"><summary><h2><span class="emoji">${emoji}</span>${esc(title)}${c}<span class="chev" aria-hidden="true"></span></h2></summary><div class="section-body">${body}</div></details>`;
 }
 
 export function loadingHtml(): string {

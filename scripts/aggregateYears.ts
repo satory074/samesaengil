@@ -17,13 +17,13 @@ import { allDays } from "../src/lib/days";
 import { categorize, cohortYearOf, type PersonCat } from "../src/lib/peers";
 import { fetchYearInfo } from "./sources/jawikiYear";
 import { fetchOriconYear, ORICON_FIRST_YEAR } from "./sources/jawikiOricon";
-import { attachSpotify, hasSpotifyCreds, type SpotifyStats } from "./sources/spotify";
+import { attachSpotify, hasSpotifyCreds, type SpotifyEntry, type SpotifyStats } from "./sources/spotify";
 import { mapLimit } from "./lib/util";
 
 const ROOT = process.cwd();
 const YEARS_DIR = path.join(ROOT, "public", "data", "years");
 const DAYS_DIR = path.join(ROOT, "public", "data", "days");
-// 曲 → Spotify URL のキャッシュ（コミットする。"" は「Spotify に無い」の負キャッシュ）。
+// 曲 → Spotify {url, cover?} のキャッシュ（コミットする。{url:""} は「Spotify に無い」の負キャッシュ、旧 string 値は互換読み）。
 const SPOTIFY_PATH = path.join(ROOT, "src", "data", "spotify.json");
 
 /** 出生年として現実的な範囲。index.astro の年セレクトが出す年は全部ファイルがある状態にする。 */
@@ -163,7 +163,7 @@ async function run(): Promise<void> {
     console.log(`[years] 逆引き完了: ${peopleByYear.size}学年ぶん（先に npm run aggregate で日別を更新しておくこと）`);
   }
 
-  const spotifyCache = readJson<Record<string, string>>(SPOTIFY_PATH, {});
+  const spotifyCache = readJson<Record<string, string | SpotifyEntry>>(SPOTIFY_PATH, {});
   const spotify: SpotifyStats = { resolved: 0, missing: 0, failed: 0 };
   if (!peopleOnly && !hasSpotifyCreds()) {
     console.log("[years] SPOTIFY_CLIENT_ID/SECRET が無いので曲の解決はスキップ（キャッシュ済みの分だけ埋めます）");
