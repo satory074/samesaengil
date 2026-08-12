@@ -4,7 +4,7 @@
 // キャッシュ済みの分だけ埋める＝表示側は検索 URL にフォールバックする（他ソースと同じ graceful degradation）。
 // 解決結果は src/data/spotify.json（"曲名|アーティスト" -> {url, cover?}、{url:""} は「Spotify に無い」の負キャッシュ。
 // 旧スキーマの string 値（URL のみ）は互換読みし、SPOTIFY_RECHECK=1 で cover 込みに引き直せる）。
-import { fetchJson, HttpError, USER_AGENT } from "../lib/util";
+import { fetchJson, HttpError, sleep, USER_AGENT } from "../lib/util";
 import type { ChartWeek } from "../../src/lib/types";
 
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -38,7 +38,19 @@ export function entryOf(v: string | SpotifyEntry): SpotifyEntry {
 }
 
 // ---- 共有セマフォ（Wikipedia 用のグローバルゲートとは別ホストなので gate:false で外し、ここで絞る）----
+// Spotify の制限は**アプリ（Client ID）単位のローリング窓**で、無制御に投げると数百 req/分で
+// 429 + Retry-After ≈ 23時間 の長期 ban を食らう（2026-08 に実発生）。開始間隔でも絞る。
 const CONCURRENCY = Math.max(1, Number(process.env.SPOTIFY_CONCURRENCY ?? 4));
+const MIN_GAP_MS = Math.max(0, Number(process.env.SPOTIFY_MIN_GAP_MS ?? 500));
+/** 長期 ban の 429 は待たずに失敗扱いにする上限（失敗はキャッシュされず次回再試行）。 */
+const MAX_429_WAIT_MS = 60_000;
+let nextSlot = 0; // 次にリクエストを開始してよい時刻（ms epoch）
+async function pace(): Promise<void> {
+  const now = Date.now();
+  const start = Math.max(now, nextSlot);
+  nextSlot = start + MIN_GAP_MS;
+  if (start > now) await sleep(start - now);
+}
 let active = 0;
 const queue: Array<() => void> = [];
 function acquire(): Promise<void> {
@@ -146,7 +158,12 @@ async function searchTrack(w: ChartWeek): Promise<SpotifyEntry> {
   const q = `${w.title} ${w.artist}`.trim();
   const url = `${SEARCH_URL}?q=${encodeURIComponent(q)}&type=track&market=JP&limit=5`;
   const call = async (token: string): Promise<SearchResponse> =>
-    fetchJson<SearchResponse>(url, { gate: false, retries: 3, headers: { Authorization: `Bearer ${token}` } });
+    fetchJson<SearchResponse>(url, {
+      gate: false,
+      retries: 3,
+      max429WaitMs: MAX_429_WAIT_MS,
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
   let data: SearchResponse;
   try {
@@ -161,14 +178,24 @@ async function searchTrack(w: ChartWeek): Promise<SpotifyEntry> {
 // 同じ曲が複数週・複数年で 1 位になるので、実行中の重複解決をまとめる。
 // 値: {url, cover?} / {url:""}（無い） / null（取得失敗＝キャッシュしない）
 const inflight = new Map<string, Promise<SpotifyEntry | null>>();
+// 長期 ban の 429 を一度でも観測したら、この実行では以降の問い合わせを全部スキップする
+// （ban 中に投げ続けると ban が延びるだけ。失敗はキャッシュされないので次回自然に再試行）。
+let banned = false;
 function resolveOnce(key: string, w: ChartWeek): Promise<SpotifyEntry | null> {
   let p = inflight.get(key);
   if (!p) {
     p = (async () => {
+      if (banned) return null;
       await acquire();
       try {
+        if (banned) return null;
+        await pace(); // 開始間隔でもレートを絞る（セマフォは同時実行数しか制限しない）
         return await searchTrack(w);
-      } catch {
+      } catch (e) {
+        if (!banned && e instanceof HttpError && e.status === 429) {
+          banned = true;
+          console.warn("[spotify] 429（レート上限）を検知。この実行では以降の曲解決をスキップします（次回再試行）");
+        }
         return null; // ネットワーク/API エラーは負キャッシュにしない（次回また試す）
       } finally {
         release();

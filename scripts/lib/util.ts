@@ -21,6 +21,12 @@ interface FetchOpts {
   method?: string;
   /** リクエストボディ（POST 用）。 */
   body?: string;
+  /**
+   * 429 の Retry-After がこれ（ミリ秒）を超えたら sleep せず即失敗にする。
+   * Spotify はアプリ単位の制限超過で Retry-After ≈ 23時間 を返すことがあり、
+   * 上限なしで従うとパイプラインが丸ごとハングする（2026-08 に実発生）。
+   */
+  max429WaitMs?: number;
 }
 
 // --- グローバルなリクエスト調停（Wikimedia の 429 対策）---
@@ -88,10 +94,19 @@ function backoff429(res: Response, attempt: number): number {
 }
 
 /** !ok なレスポンスを処理: 429=バックオフ継続, 4xx=即失敗, 5xx=リトライ。継続すべきなら true。 */
-async function handleNotOk(res: Response, url: string, attempt: number, retries: number): Promise<boolean> {
+async function handleNotOk(
+  res: Response,
+  url: string,
+  attempt: number,
+  retries: number,
+  max429WaitMs?: number,
+): Promise<boolean> {
   if (res.status === 429) {
-    if (attempt < retries) {
-      await sleep(backoff429(res, attempt));
+    const wait = backoff429(res, attempt);
+    if (max429WaitMs != null && wait > max429WaitMs) {
+      console.warn(`[http] 429 Retry-After ${Math.round(wait / 1000)}s > 上限 ${Math.round(max429WaitMs / 1000)}s のため待たずに失敗扱い: ${url}`);
+    } else if (attempt < retries) {
+      await sleep(wait);
       return true; // リトライ
     }
   }
@@ -106,12 +121,14 @@ export async function fetchJson<T = unknown>(url: string, opts: FetchOpts = {}):
     try {
       const res = await fetchWithTimeout(url, { ...opts, headers: { Accept: "application/json", ...opts.headers } });
       if (!res.ok) {
-        if (await handleNotOk(res, url, i, retries)) continue;
+        if (await handleNotOk(res, url, i, retries, opts.max429WaitMs)) continue;
       }
       return (await res.json()) as T;
     } catch (e) {
       lastErr = e;
       if (e instanceof HttpError && e.status < 500 && e.status !== 429) throw e; // 4xx はリトライ無意味
+      // cap 付きで throw された 429 は「長期 ban」＝外側で再リクエストしても無駄（ban を延ばすだけ）
+      if (e instanceof HttpError && e.status === 429 && opts.max429WaitMs != null) throw e;
       if (i < retries) await sleep(800 * (i + 1));
     }
   }
@@ -126,12 +143,13 @@ export async function fetchText(url: string, opts: FetchOpts = {}): Promise<stri
     try {
       const res = await fetchWithTimeout(url, opts);
       if (!res.ok) {
-        if (await handleNotOk(res, url, i, retries)) continue;
+        if (await handleNotOk(res, url, i, retries, opts.max429WaitMs)) continue;
       }
       return await res.text();
     } catch (e) {
       lastErr = e;
       if (e instanceof HttpError && e.status < 500 && e.status !== 429) throw e;
+      if (e instanceof HttpError && e.status === 429 && opts.max429WaitMs != null) throw e;
       if (i < retries) await sleep(800 * (i + 1));
     }
   }
