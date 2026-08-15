@@ -44,6 +44,14 @@ const CONCURRENCY = Math.max(1, Number(process.env.SPOTIFY_CONCURRENCY ?? 4));
 const MIN_GAP_MS = Math.max(0, Number(process.env.SPOTIFY_MIN_GAP_MS ?? 500));
 /** 長期 ban の 429 は待たずに失敗扱いにする上限（失敗はキャッシュされず次回再試行）。 */
 const MAX_429_WAIT_MS = 60_000;
+/**
+ * 1実行あたりの送信リクエスト数上限。ban は開始間隔 500ms でも送信 ~700〜900 件付近で
+ * 発生した（2026-08 に2回実測）＝レートではなく**日次の総量制限**とみられるため、
+ * 総量を安全圏に抑えて残りは次回実行（週次 cron）に回す。
+ */
+const MAX_REQUESTS = Math.max(1, Number(process.env.SPOTIFY_MAX_REQUESTS ?? 600));
+let sent = 0;
+let cappedLogged = false;
 let nextSlot = 0; // 次にリクエストを開始してよい時刻（ms epoch）
 async function pace(): Promise<void> {
   const now = Date.now();
@@ -189,6 +197,14 @@ function resolveOnce(key: string, w: ChartWeek): Promise<SpotifyEntry | null> {
       await acquire();
       try {
         if (banned) return null;
+        if (sent >= MAX_REQUESTS) {
+          if (!cappedLogged) {
+            cappedLogged = true;
+            console.warn(`[spotify] 1実行の送信上限 ${MAX_REQUESTS} 件に達したため以降はスキップ（次回実行で続きから）`);
+          }
+          return null;
+        }
+        sent++;
         await pace(); // 開始間隔でもレートを絞る（セマフォは同時実行数しか制限しない）
         return await searchTrack(w);
       } catch (e) {
