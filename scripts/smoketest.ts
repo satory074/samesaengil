@@ -4,6 +4,7 @@
 // 3) year / oshi / peers（生まれた年・推し・同じ学年）
 // 4) portrait / initials（顔写真の照合ロジックと、写真が無いカードの見た目）
 // 5) spotify（曲の照合・ジャケット選択・キャッシュ互換読み）
+// 6) kinenbi / anniv（日本記念日協会のパースと Wikipedia とのマージ）
 import {
   ageOf,
   birthFlowerOf,
@@ -49,6 +50,8 @@ import {
 } from "./lib/portrait";
 import { charNameMatches, mediaTitleMatches, normName } from "./lib/charMatch";
 import { entryOf, pickCover, pickTrack } from "./sources/spotify";
+import { kinenbiUrl, parseKinenbiDay, splitKinenbiName } from "./sources/kinenbiDay";
+import { mergeAnniversaries, normalizeAnnivLabel } from "../src/lib/anniv";
 import { initials } from "../src/app/render";
 import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
 
@@ -490,6 +493,64 @@ function assert(cond: boolean, msg: string): void {
   assert(initials({ name: "轟" }) === "轟", "1文字の名前でも落ちない");
   assert(initials({ name: "Ada Lovelace", nameEn: "Ada Lovelace" }) === "AL", "英語名は姓名の頭文字");
   console.log("[initials] OK");
+}
+
+// ---- 日本記念日協会の日付ページのパース（scripts/sources/kinenbiDay.ts）----
+{
+  // 実サイトの構造を模した合成 HTML。box01 の**前**にも同形式の ofi リンク（新着記念日サイドバー相当）が
+  // あるのが要点——スライスせずページ全体を正規表現にかけると当日以外の記念日を拾ってしまう。
+  const html = `
+    <div class="news"><A href="yurai.php?TYPE=ofi&MD=3&NM=9999"><FONT color="#666666">別日の新着記念日</FONT></A></div>
+    <div class="today_kinenbibox01">
+      <A class="winDetail" href="yurai.php?TYPE=ofi&MD=3&NM=660"><FONT style="font-size:12px" color="#666666">クレープの日</FONT></A>
+      <A class="winDetail" href="yurai.php?TYPE=ofi&amp;MD=3&amp;NM=2055"><FONT color="#666666">いいきゅうりの日＜４月を除く毎月１９日＞</FONT></A>
+      <A href="yurai.php?TYPE=ofi&MD=3&NM=660"><FONT color="#666666">クレープの日</FONT></A>
+    </div>
+    <div class="today_kinenbibox02">
+      <A href="yurai_other.php?MD=4&NM=65"><FONT color="#666666">元日</FONT></A>
+      <A href="yurai_other.php?MD=4&NM=70"><FONT color="#666666">2026 お風呂の年</FONT></A>
+    </div>
+    <div class="today_kinenbibox03">
+      <A href="yurai.php?TYPE=ofi&MD=3&NM=17"><FONT color="#666666">発売 33周年</FONT></A>
+    </div>`;
+  const entries = parseKinenbiDay(html);
+  assert(entries.length === 3, `box01+box02 の当日分だけ拾う（${entries.length}件）`);
+  assert(entries[0].id === 660 && entries[0].name === "クレープの日", "認定記念日（& 形の href）");
+  assert(entries[1].id === 2055 && entries[1].name.includes("いいきゅうり"), "&amp; 形の href も拾う");
+  assert(entries[2].id === 65 && entries[2].name === "元日" && entries[2].other === true, "box02 の伝統日は other");
+  assert(!entries.some((e) => e.id === 9999), "box01 より前のサイドバーは拾わない");
+  assert(!entries.some((e) => e.id === 17), "box03（周年記念）は拾わない");
+  assert(!entries.some((e) => e.name.startsWith("2026")), "年間指定ノイズ（YYYY ◯◯の年）は除外");
+  assert(parseKinenbiDay("<html>no boxes</html>").length === 0, "マーカーが無ければ空");
+
+  assert(splitKinenbiName("クレープの日").label === "クレープの日", "注記なしはそのまま");
+  const sp = splitKinenbiName("いいきゅうりの日＜４月を除く毎月１９日＞");
+  assert(sp.label === "いいきゅうりの日" && sp.desc === "４月を除く毎月１９日", "＜注記＞を desc に分離");
+  assert(kinenbiUrl({ id: 660 }) === "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=660", "認定の由来 URL");
+  assert(kinenbiUrl({ id: 65, other: true }) === "https://www.kinenbi.gr.jp/yurai_other.php?MD=4&NM=65", "その他の由来 URL");
+  console.log("[kinenbi] OK");
+}
+
+// ---- 記念日 2 ソースのマージ（src/lib/anniv.ts）----
+{
+  assert(normalizeAnnivLabel("靴の記念日") === normalizeAnnivLabel("靴の記念日 "), "空白差を吸収");
+  assert(normalizeAnnivLabel("ＡＢＣの日") === normalizeAnnivLabel("abcの日"), "全角/大小を吸収（NFKC）");
+
+  const wiki = [{ label: "靴の記念日", desc: "wiki側の説明" }, { label: "節分" }];
+  const kin = [
+    { label: "靴の記念日", desc: "協会側の説明", url: "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=1" },
+    { label: "イクラの日", url: "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=2" },
+  ];
+  const merged = mergeAnniversaries(wiki, kin);
+  assert(merged.length === 3, `重複は1件に畳む（${merged.length}件）`);
+  assert(merged[0].label === "靴の記念日" && merged[0].url === kin[0].url, "重複は Wikipedia の位置のまま URL に昇格");
+  assert(merged[0].desc === "wiki側の説明", "desc は Wikipedia 優先");
+  assert(merged[1].label === "節分" && !merged[1].url, "Wikipedia のみのエントリはリンクなしで先頭側");
+  assert(merged[2].label === "イクラの日" && merged[2].url === kin[1].url, "未消費の kinenbi は後置");
+  const kinOnly = mergeAnniversaries([], kin);
+  assert(kinOnly.length === 2 && kinOnly[0].label === "靴の記念日", "Wikipedia 空でも kinenbi 全件");
+  assert(mergeAnniversaries(wiki, []).length === 2, "kinenbi 空でも Wikipedia 全件");
+  console.log("[anniv] OK");
 }
 
 console.log("\n✅ smoketest passed");

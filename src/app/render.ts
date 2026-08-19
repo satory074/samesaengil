@@ -1,6 +1,7 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
 import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
+import { mergeAnniversaries } from "../lib/anniv";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   CAT_LABELS,
@@ -424,13 +425,25 @@ function charChip(c: Character, withWork = true): string {
 
 /* ---------- M月D日は何の日 ---------- */
 // 「今日」ではなく選択した誕生日の記念日・できごとなので、見出しに日付を入れる。
-export function anniversaryHtml(input: YMD, anniversaries: Anniversary[], events: DayEvent[]): string {
+// Wikipedia（anniversaries）と日本記念日協会（kinenbi）は別キーで受けて表示時にマージする。
+export function anniversaryHtml(
+  input: YMD,
+  anniversaries: Anniversary[],
+  kinenbi: Anniversary[],
+  events: DayEvent[],
+): string {
   const title = `${input.month}月${input.day}日は何の日`;
-  if (anniversaries.length === 0 && events.length === 0) {
+  const merged = mergeAnniversaries(anniversaries, kinenbi);
+  if (merged.length === 0 && events.length === 0) {
     return section("📅", title, `<p class="empty">データが見つかりませんでした。</p>`);
   }
-  const chips = anniversaries
-    .map((a) => `<span class="anniv" title="${esc(a.desc ?? "")}">${esc(a.label)}</span>`)
+  // url あり＝協会の由来ページへ新しいタブでリンク（由来本文はコピーしない）。charChip と同じ分岐流儀。
+  const chips = merged
+    .map((a) =>
+      a.url
+        ? `<a class="anniv" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.desc ?? "")}">${esc(a.label)}</a>`
+        : `<span class="anniv" title="${esc(a.desc ?? "")}">${esc(a.label)}</span>`,
+    )
     .join("");
   const evs = events.length
     ? `<ul class="events">${events
@@ -438,7 +451,7 @@ export function anniversaryHtml(input: YMD, anniversaries: Anniversary[], events
         .join("")}</ul>`
     : "";
   const body = `${chips ? `<div class="anniv-list">${chips}</div>` : ""}${evs}`;
-  return section("📅", title, body);
+  return section("📅", title, body, merged.length || undefined);
 }
 
 /* ---------- 共有 ---------- */
@@ -487,7 +500,7 @@ export function resultHtml(
     funFactsHtml(input, today) +
     bornYearHtml(input, year) +
     // 記念日は飲み会ネタとして鮮度が高いのに、数百件のキャラ一覧の下だと誰も辿り着けないのでここに置く。
-    anniversaryHtml(input, day.anniversaries, day.events) +
+    anniversaryHtml(input, day.anniversaries, day.kinenbi, day.events) +
     peopleHtml(day.people) +
     oshiHtml(day.people, day.characters) +
     sameYearHtml(input, day, cohort) +

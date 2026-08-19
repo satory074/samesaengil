@@ -143,7 +143,9 @@ function parseBirths(wt: string): { births: JaRawBirth[]; animals: JaRawBirth[] 
   return { births, animals };
 }
 
-function parseAnniversaries(wt: string, limit = 8): Anniversary[] {
+// 件数キャップなし（かつては8件）。表示側が全件表示＋kinenbi とのマージになったため、
+// 祝日・節句など kinenbi に無い主要記念日が9件目以降で欠けないよう全部返す。
+function parseAnniversaries(wt: string): Anniversary[] {
   const out: Anniversary[] = [];
   for (const raw of wt.split("\n")) {
     const t = raw.trimStart();
@@ -158,7 +160,6 @@ function parseAnniversaries(wt: string, limit = 8): Anniversary[] {
     const desc = m ? m[2].trim() : undefined;
     if (label.length === 0 || label.length > 40) continue;
     out.push(desc ? { label, desc } : { label });
-    if (out.length >= limit) break;
   }
   return out;
 }

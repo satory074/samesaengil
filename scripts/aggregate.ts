@@ -8,11 +8,13 @@
 //   ONLY_DAYS=03-15,07-04 npm run aggregate
 //   CHARS_ONLY=1 npm run aggregate  … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
 //   PHOTOS_ONLY=1 npm run aggregate … 日ページを叩かず、写真の無い人だけ外部ソースで補完して photo を差し替え
+//   KINENBI_ONLY=1 npm run aggregate … Wikipedia を叩かず kinenbi（協会認定記念日）だけ差し替え
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
+import { kinenbiUrl, splitKinenbiName, type KinenbiEntry } from "./sources/kinenbiDay";
 import { mapLimit } from "./lib/util";
 import {
   emptyPhotoStats,
@@ -77,6 +79,28 @@ function hslToHex(h: number, s: number, l: number): string {
   const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
   const to = (n: number): string => Math.round(255 * f(n)).toString(16).padStart(2, "0");
   return `#${to(0)}${to(8)}${to(4)}`;
+}
+
+/**
+ * 日本記念日協会の取込 JSON（src/data/kinenbi.json、コミット済み）を MM-DD -> Anniversary[] に。
+ * 実行時 API なし。無ければ空（初回取込前でも aggregate は壊れない）。
+ */
+function readKinenbiMap(): Map<string, Anniversary[]> {
+  const rows = readJson<(KinenbiEntry & { month: number; day: number })[]>(
+    path.join(ROOT, "src", "data", "kinenbi.json"),
+    [],
+  );
+  if (rows.length === 0) {
+    console.warn("[aggregate] src/data/kinenbi.json が空です。先に npm run import:kinenbi を実行してください。");
+  }
+  const map = new Map<string, Anniversary[]>();
+  for (const r of rows) {
+    const key = `${pad(r.month)}-${pad(r.day)}`;
+    const arr = map.get(key) ?? [];
+    arr.push({ ...splitKinenbiName(r.name), url: kinenbiUrl(r) });
+    map.set(key, arr);
+  }
+  return map;
 }
 
 /** 2 つのキャラ seed に出てくる作品名（ユニーク、~7000件）。 */
@@ -339,6 +363,27 @@ async function run(): Promise<void> {
     return;
   }
 
+  // 高速適用パス: Wikipedia を叩かず、既存 per-day ファイルの kinenbi（協会認定記念日）だけ差し替える。
+  // import:kinenbi の後、全366日へ数秒で反映するための経路（CHARS_ONLY と同型・冪等）。
+  if (process.env.KINENBI_ONLY) {
+    const kinenbiMap = readKinenbiMap();
+    let updated = 0;
+    let missing = 0;
+    for (const { month, day } of selectDays()) {
+      const key = `${pad(month)}-${pad(day)}`;
+      const filePath = path.join(DAYS_DIR, `${key}.json`);
+      const prev = readJson<DayData | null>(filePath, null);
+      if (!prev) {
+        missing++;
+        continue; // ファイルが無い日はスキップ（まず通常 aggregate が必要）
+      }
+      writeJson(filePath, { ...prev, kinenbi: kinenbiMap.get(key) ?? [], updatedAt: new Date().toISOString() });
+      updated++;
+    }
+    console.log(`[aggregate] KINENBI_ONLY 完了: 更新${updated} / 欠落${missing}日`);
+    return;
+  }
+
   // キャラの並び替えに使う「作品の人気」（＝作品記事の年間閲覧数）。人物の fame と同じ仕組み・
   // 同じキャッシュ（state.pages/views）。CHARS_ONLY は Wikipedia を叩かずキャッシュ済みの分だけ使う。
   const fame = await resolveWorkFame(allWorks(), state, charsOnly);
@@ -368,6 +413,8 @@ async function run(): Promise<void> {
     console.log(`[aggregate] CHARS_ONLY 完了: 更新${updated} / 欠落${missing} / 計${days.length}日`);
     return;
   }
+
+  const kinenbiMap = readKinenbiMap(); // コミット済み JSON を読むだけ（実行時 API なし）
 
   const single = days.length === 1;
   // 日単位で並列（Wikimedia への礼儀として控えめ）。AGG_CONCURRENCY で上書き可。
@@ -422,6 +469,8 @@ async function run(): Promise<void> {
       animals,
       characters: charMap.get(key) ?? [],
       anniversaries,
+      // ローカルのコミット済みファイル由来なので prev フォールバック不要（継続性は import:kinenbi 側が担保）。
+      kinenbi: kinenbiMap.get(key) ?? [],
       events,
       updatedAt: new Date().toISOString(),
     };
@@ -435,7 +484,7 @@ async function run(): Promise<void> {
       ok++;
     }
     if (single) {
-      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length} / できごと${events.length}`);
+      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length}+協会${out.kinenbi.length} / できごと${events.length}`);
     } else if (done % 20 === 0) {
       console.log(`  …${done}/${days.length}`);
       writeState(state); // 途中保存（落ちてもキャッシュが残る）

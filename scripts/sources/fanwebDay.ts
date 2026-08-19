@@ -4,6 +4,7 @@
 //
 // 実行時ではなく取込スクリプト（importFanwebCharacters.ts）から一度だけ叩き、
 // 成果物はコミット済み JSON にする（aggregate は第三者サイトに実行時依存しない）。
+import { clean } from "../lib/html";
 import { fetchText } from "../lib/util";
 
 /** 1 キャラ分の生データ（名前＋作品名のみ。画像・URL は持たない）。 */
@@ -20,24 +21,6 @@ const BASE = "https://bd.fan-web.jp/sayhappy_sp.cgi";
 // 実在の有名人・声優は別マークアップなので、作品リンク（search.cgi）を必須にして二重に防御する。
 const CHAR_RE =
   /<font color=crimson><b>(.*?)<\/b><\/font>\(<a\s[^>]*search\.cgi[^>]*>(.*?)<\/a>/gis;
-
-/** HTML エンティティ（名前つき＋数値参照）を素の文字へ。 */
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&"); // & は最後に（二重デコード防止）
-}
-
-/** 残った HTML タグを落として decode・空白正規化・trim。 */
-function clean(s: string): string {
-  return decodeEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
-}
 
 /**
  * 指定日のキャラ一覧を取得。取得失敗・パース 0 件はいずれも [] を返す

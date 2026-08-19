@@ -43,6 +43,8 @@ export interface Character {
 export interface Anniversary {
   label: string;
   desc?: string;
+  /** 由来ページ URL（日本記念日協会由来のみ。Wikipedia 由来は常に欠落）。 */
+  url?: string;
 }
 
 /** その月日のできごと（歴史）。 */
@@ -60,6 +62,12 @@ export interface DayData {
   animals: Person[];
   characters: Character[];
   anniversaries: Anniversary[];
+  /**
+   * 日本記念日協会（kinenbi.gr.jp）の認定記念日。anniversaries（Wikipedia 由来）とは
+   * 別キーで持ち、表示時に src/lib/anniv.ts でマージする。マージ済みを焼き込むと
+   * KINENBI_ONLY 高速パスの再実行で由来の判別が必要になり冪等でなくなるため。
+   */
+  kinenbi: Anniversary[];
   events: DayEvent[];
   /** 生成時刻（ISO）。 */
   updatedAt: string;

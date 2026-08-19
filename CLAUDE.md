@@ -23,6 +23,7 @@ npm run aggregate              # 全366日を public/data/days/*.json に生成
 npx tsx scripts/aggregate.ts 03-15 07-04   # 指定日のみ（argv または ONLY_DAYS=）
 AGG_CONCURRENCY=2 npm run aggregate        # 日単位の並列度を下げる（既定3）
 PHOTOS_ONLY=1 npm run aggregate            # 日ページを叩かず「顔写真の無い人」だけ外部ソースで補完
+KINENBI_ONLY=1 npm run aggregate           # Wikipedia を叩かず「協会認定記念日」だけ差し替え（数秒）
 npm run aggregate:years        # 1900〜今年を public/data/years/YYYY.json に生成（~4分）
 npx tsx scripts/aggregateYears.ts 1995     # 指定年のみ（argv または ONLY_YEARS=）
 YEARS_PEOPLE_ONLY=1 npm run aggregate:years  # API を叩かず「同じ年に生まれた有名人」だけ再生成（全127年で数秒）
@@ -32,6 +33,7 @@ npm run rank:works             # 作品の人気（閲覧数）を state.json �
 npm run import:characters      # bd.fan-web.jp → src/data/characters-fanweb.json
 npm run import:char-images     # AniList → src/data/anilist.json（キャラ画像。人気順・再開可能・~1-2h）
 npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Subset.ttf（OG画像用）
+npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記念日。他と違い週次 CI でも実行、~4分）
 ```
 
 `npm run aggregate` / `aggregate:years` / `rank:works` は実 API（日本語版Wikipedia・Wikidata・Spotify）を叩く。レート制限で一部が取りこぼれることがある（下記「取りこぼし」参照）。**顔写真の補完は認証不要（Wikimedia のみ）＝キーは要らない。**
@@ -55,7 +57,8 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
   - キャッシュは `state.photos`（要求タイトル → `{url, src, v}`、`url:""` は「全段外れた」の負キャッシュ）。ロジックを変えたら `state.ts` の **`PHOTO_VERSION` を上げる**と全件引き直す。
 - **人気（並び替え指標＝閲覧数）** `sources/jawikiPageviews.ts`: 正規化タイトルを Wikimedia REST **pageviews API**（`wikimedia.org/.../per-article/ja.wikipedia/...`＝ja.wikipedia とは別ホスト）で**直近12か月の年間閲覧数(=fame)**に解決。metrics API は **1 IP あたり ~6 並列**を超えると 429 を返す（実測: 6=クリーン, 7 で混入, 8+ 全滅）ため、日並列(`AGG_CONCURRENCY`)と無関係に**総同時実行数を 6 に固定するモジュール共有セマフォ**を噛ませる（グローバルゲート外＝`gate:false`）。**人物リストは増やさず、閲覧数は並び順にだけ使う**。SPARQL/Wikidata sitelink 方式は「世界的知名度」で日本の人気とズレる（旧: 米大統領が上位）ため廃止。
 - **ランキング**（`aggregate.ts` の `buildPeopleAndAnimals`）: 名前・肩書きは日本語リスト由来、写真は ja pageimages。**正規化タイトルで重複排除**し、並びは **閲覧数(fame) 降順 → 写真あり → 生年新しい順**（＝日本でよく見られている人が上位）。**全件**を JSON に保存し、表示側で先頭30件＋「もっと見る」遅延描画。動物は別配列 `animals`。
-- **今日は何の日** 同じ `fetchDayInfo`（節一覧は 1 回だけ引き、`誕生日`/`記念日・年中行事`/`できごと` の 3 節を `Promise.all` で並行取得）。**節 index はページ毎に違うので必ず `prop=sections` の `line` 名で引く**。
+- **今日は何の日** 同じ `fetchDayInfo`（節一覧は 1 回だけ引き、`誕生日`/`記念日・年中行事`/`できごと` の 3 節を `Promise.all` で並行取得）。**節 index はページ毎に違うので必ず `prop=sections` の `line` 名で引く**。記念日の件数キャップは撤廃済み（かつては8件。全件保存・全件表示）。
+- **協会認定記念日（kinenbi.gr.jp＝日本記念日協会）** `sources/kinenbiDay.ts`＋取込 `importKinenbi.ts` → コミット済み `src/data/kinenbi.json`（fanweb と同じ「取込→静的 JSON」パターンだが、**新規認定を拾うため週次 CI でも実行**される）。日付検索はトップへの POST（`MD=1&M=月&D=日`）で、当日分は `today_kinenbibox01`（認定）→`box02`（その他=元日など伝統日）→`box03`（周年）のマーカー間にある——**box01 の外（新着サイドバー等）にも同形式リンクがあるので必ずスライスしてから抽出**（`parseKinenbiDay` は純関数＝smoketest 対象）。box02 は毎ページ共通の年間指定ノイズ（`2026 お風呂の年`）を `^\d{4}\s` で除外。名前の `＜４月を除く毎月１９日＞` 注記は `splitKinenbiName` で desc に分離。取込は取得0件の日を**前回値で維持**（週次実行でサイト障害時に空上書きしない）。`DayData` では Wikipedia 由来の `anniversaries` と**別キー `kinenbi`** で持ち、表示時に `src/lib/anniv.ts` の `mergeAnniversaries` でマージ（Wikipedia 先頭・正規化ラベルで重複排除、重複は kinenbi の由来ページ URL に昇格）——焼き込むと `KINENBI_ONLY` 再実行の冪等性が失われるため。**由来の本文は協会の著作文なのでコピーせず**、チップから由来ページ（`yurai.php`）へ新しいタブでリンクする（フッタに出典明記）。取込後の反映は `KINENBI_ONLY=1 npm run aggregate`（数秒）。
 - **キャラ**: 2 つの静的シードを当日分だけマージ（実行時 API なし）。(a) 手描きの curated `src/data/characters.json`（色つき）、(b) **bd.fan-web.jp 由来のバルク** `src/data/characters-fanweb.json`（全366日 ~7.5万件、名前＋作品名のみ）。マージは `aggregate.ts` の `buildCharacterMap`＝日ごと `name` で重複排除（curated 先勝ち）、fanweb 分の色は `colorForWork(work)`（作品名ハッシュ→固定 S/L の HSL）で自動導出。
 - **キャラの並び（`rankCharacters`）**: **作品の閲覧数(人気)降順 → 作品名（同作品を隣接）→ 作品内は seed 順**（`Array#sort` は安定）。作品の人気は**人物の fame と同じ仕組み**——作品名を jawiki のタイトルとみなして `resolveWorkFame()`（`scripts/lib/state.ts`）が pageMeta＋pageviews で解決し、同じ `state.pages`/`state.views` にキャッシュする（記事が無い作品は 0＝後ろへ）。初期表示は先頭40件なので、ここが**実質ランダムだと有名作品が埋もれる**（旧: fanweb のスクレイプ順そのまま）。
 - **占い/暦は生成しない**。年・月日から計算できるので**クライアント側**（`src/lib/almanac.ts`）で出す。

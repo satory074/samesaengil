@@ -34,6 +34,11 @@ jobs:
       - run: npm run test
 
       # データ再生成は schedule / 手動のときだけ（push 時はスキップ＝コミットループ防止）
+      # 記念日（日本記念日協会）の取込を先に回す。直後の aggregate が per-day JSON の kinenbi キーへ反映する。
+      - name: Import kinenbi anniversaries
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run import:kinenbi
+
       - name: Aggregate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate
@@ -54,7 +59,7 @@ jobs:
         run: |
           git config user.name "data-bot"
           git config user.email "actions@github.com"
-          git add public/data src/data/state.json src/data/spotify.json
+          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh birthday data"
             git push

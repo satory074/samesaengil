@@ -86,6 +86,7 @@ export function boot(root: HTMLElement): void {
       animals: d?.animals ?? [],
       characters: d?.characters ?? [],
       anniversaries: d?.anniversaries ?? [],
+      kinenbi: d?.kinenbi ?? [],
       events: d?.events ?? [],
       updatedAt: d?.updatedAt ?? "",
     };

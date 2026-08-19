@@ -533,6 +533,13 @@ a:hover {
   border-radius: 999px;
   padding: 5px 12px;
 }
+/* リンク化されたチップ（日本記念日協会の由来ページ）。見た目は span と揃え、リンク可はホバー下線だけで示す。 */
+a.anniv {
+  text-decoration: none;
+}
+a.anniv:hover {
+  text-decoration: underline;
+}
 .events {
   list-style: none;
   margin: 12px 0 0;

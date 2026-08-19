@@ -15,6 +15,7 @@
     "rank:works": "tsx scripts/rankWorks.ts",
     "import:characters": "tsx scripts/importFanwebCharacters.ts",
     "import:char-images": "tsx scripts/importCharacterImages.ts",
+    "import:kinenbi": "tsx scripts/importKinenbi.ts",
     "test": "tsx scripts/smoketest.ts && tsx scripts/domtest.ts",
     "import:font": "tsx scripts/buildFontSubset.ts"
   },

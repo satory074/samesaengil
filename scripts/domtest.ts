@@ -51,6 +51,11 @@ const SAMPLE: DayData = {
     { name: "画像キャラ", work: "TEST2", color: "#00ff00", image: "https://s4.anilist.co/file/x.png" },
   ],
   anniversaries: [{ label: "靴の記念日", desc: "日本記念日協会" }, { label: "サイコの日" }],
+  // 協会認定記念日（別キー。表示時に anniversaries とマージ）。靴の記念日は wiki と重複＝リンクに昇格する。
+  kinenbi: [
+    { label: "靴の記念日", url: "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=1" },
+    { label: "いいきゅうりの日", desc: "４月を除く毎月１９日", url: "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=2055" },
+  ],
   events: [{ year: 2013, text: "新幹線200系電車引退。" }],
   updatedAt: "2026-06-30T00:00:00Z",
 };
@@ -325,6 +330,21 @@ function submit(dom: JSDOM, root: Element): void {
   const noImg = chips.find((c) => c.querySelector(".cname")?.textContent === "テストキャラ")!;
   assert(!noImg.querySelector("img.cimg") && !!noImg.querySelector(".dot"), "image なしキャラは色ドットのみ");
   assert([...result.querySelectorAll(".anniv")].some((a) => a.textContent === "靴の記念日"), "記念日チップ");
+  // 協会認定記念日: wiki と重複する「靴の記念日」は 1 個だけ＝<a> に昇格、kinenbi のみの日も出る
+  const annivs = [...result.querySelectorAll(".anniv")];
+  const kutsu = annivs.filter((a) => a.textContent === "靴の記念日");
+  assert(kutsu.length === 1, `重複記念日は1チップに畳む（実際: ${kutsu.length}）`);
+  assert(
+    kutsu[0].tagName === "A" &&
+      kutsu[0].getAttribute("href") === "https://www.kinenbi.gr.jp/yurai.php?TYPE=ofi&MD=3&NM=1" &&
+      kutsu[0].getAttribute("target") === "_blank" &&
+      kutsu[0].getAttribute("rel") === "noopener",
+    "重複チップは由来ページへの <a>（新しいタブ）に昇格",
+  );
+  const kyuri = annivs.find((a) => a.textContent === "いいきゅうりの日");
+  assert(!!kyuri && kyuri.tagName === "A", "kinenbi のみの記念日もリンクチップで出る");
+  const psycho = annivs.find((a) => a.textContent === "サイコの日");
+  assert(!!psycho && psycho.tagName === "SPAN", "Wikipedia のみの記念日は従来どおり span");
   assert(result.querySelector(".events .yr")!.textContent === "2013年", "できごと年");
 
   // 共有ボタン
