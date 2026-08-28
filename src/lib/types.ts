@@ -53,6 +53,29 @@ export interface DayEvent {
   text: string;
 }
 
+/**
+ * その月日に発売されたゲームソフト。
+ * 出所は日本語版Wikipedia の機種別「〈機種〉のゲームタイトル一覧」（家庭用機・携帯機）と、
+ * Steam 公式ストア（PC）。取込は scripts/importGames.ts → src/data/games.json。
+ */
+export interface Game {
+  /** 表示名。 */
+  name: string;
+  /** 発売年。月日は per-day ファイル名で決まるので持たない（Person と同じ流儀）。 */
+  year: number;
+  /** 機種。同じ日に同名が複数機種で出ていれば "PS5・Switch" のように連結。Steam 由来は "Steam"。 */
+  platform: string;
+  /**
+   * jawiki 記事タイトル。一覧で未リンクだったソフト（全体の 12%）は欠落。
+   * **URL ではなくタイトルで持つ**——日本語タイトルの %エンコード済み URL は 1 件あたり 100 バイト超で、
+   * 1日 最大 340 本ぶんを持つと診断のたびに fetch する per-day ファイルが倍近く膨らむ。
+   * 表示側は src/lib/games.ts の gameLink() で組み立てる。
+   */
+  title?: string;
+  /** Steam の appid（Steam 由来のみ）。URL は同じく gameLink() で組み立てる。 */
+  appid?: number;
+}
+
 /** 1 日ぶんの集約データ（public/data/days/MM-DD.json）。 */
 export interface DayData {
   /** "MM-DD"。 */
@@ -71,6 +94,12 @@ export interface DayData {
   events: DayEvent[];
   /** 生成時刻（ISO）。 */
   updatedAt: string;
+  /**
+   * その月日に発売されたゲームソフト（全年ぶん）。人気順（jawiki の年間閲覧数）→ 年の新しい順。
+   * kinenbi と同じく「コミット済み JSON（src/data/games.json）を読むだけ」の系統で、
+   * GAMES_ONLY=1 の高速パスで差し替えられる。
+   */
+  games: Game[];
 }
 
 /** その年のできごと（日付つき）。 */

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-生年月日を入れると、その誕生日にまつわる情報（同じ誕生日の有名人＝顔写真つき・フィクションキャラ・記念日・**その年の出来事＋生まれた週のオリコン1位（Spotify リンク・ジャケットつき、その年の週間1位一覧も）**・**同じ学年の有名人＝芸能/スポーツ/音楽…のカテゴリ別**・星座/誕生石/誕生花/年齢/干支/和暦・**曜日/月齢/生誕日数/数秘/九星**）が出てくる若者向け静的サイト。Astro 5 + Tailwind v4 + TypeScript、GitHub Pages（Actions デプロイ）。公開: https://satory074.github.io/samesaengil/
+生年月日を入れると、その誕生日にまつわる情報（同じ誕生日の有名人＝顔写真つき・フィクションキャラ・記念日・**同じ誕生日に発売されたゲームソフト（生まれた日ちょうどの分は⭐）**・**その年の出来事＋生まれた週のオリコン1位（Spotify リンク・ジャケットつき、その年の週間1位一覧も）**・**同じ学年の有名人＝芸能/スポーツ/音楽…のカテゴリ別**・星座/誕生石/誕生花/年齢/干支/和暦・**曜日/月齢/生誕日数/数秘/九星**）が出てくる若者向け静的サイト。Astro 5 + Tailwind v4 + TypeScript、GitHub Pages（Actions デプロイ）。公開: https://satory074.github.io/samesaengil/
 
 ## Commands
 
@@ -24,22 +24,28 @@ npx tsx scripts/aggregate.ts 03-15 07-04   # 指定日のみ（argv または ON
 AGG_CONCURRENCY=2 npm run aggregate        # 日単位の並列度を下げる（既定3）
 PHOTOS_ONLY=1 npm run aggregate            # 日ページを叩かず「顔写真の無い人」だけ外部ソースで補完
 KINENBI_ONLY=1 npm run aggregate           # Wikipedia を叩かず「協会認定記念日」だけ差し替え（数秒）
+GAMES_ONLY=1 npm run aggregate             # Wikipedia を叩かず「発売されたゲーム」だけ差し替え（数秒）
 npm run aggregate:years        # 1900〜今年を public/data/years/YYYY.json に生成（~4分）
 npx tsx scripts/aggregateYears.ts 1995     # 指定年のみ（argv または ONLY_YEARS=）
 YEARS_PEOPLE_ONLY=1 npm run aggregate:years  # API を叩かず「同じ年に生まれた有名人」だけ再生成（全127年で数秒）
 npm run rank:works             # 作品の人気（閲覧数）を state.json に貯める（キャラの並び順用）
+npm run rank:games             # ゲーム記事の人気（閲覧数）を state.json に貯める（ゲームの並び順用）
 
 # 1回だけ実行する取込スクリプト（生成物はコミット済み。通常は再実行不要）
 npm run import:characters      # bd.fan-web.jp → src/data/characters-fanweb.json
 npm run import:char-images     # AniList → src/data/anilist.json（キャラ画像。人気順・再開可能・~1-2h）
 npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Subset.ttf（OG画像用）
 npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記念日。他と違い週次 CI でも実行、~4分）
+npm run import:games           # 機種別「ゲームタイトル一覧」＋Steam → src/data/games.json（週次 CI でも実行、~4分）
+npx tsx scripts/importGames.ts PS2 ファミコン  # 指定機種だけ（デバッグ。ファイルは書かない）
+GAMES_SKIP_STEAM=1 npm run import:games        # Wikipedia の機種別一覧だけ（Steam 段をスキップ）
 ```
 
 `npm run aggregate` / `aggregate:years` / `rank:works` は実 API（日本語版Wikipedia・Wikidata・Spotify）を叩く。レート制限で一部が取りこぼれることがある（下記「取りこぼし」参照）。**顔写真の補完は認証不要（Wikimedia のみ）＝キーは要らない。**
 
 **環境変数（すべて任意。無ければその段をスキップするだけで壊れない）**: `.env` に置けば `dotenv/config` で読まれる。CI では同名の Secret。
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` … **オリコン1位曲の Spotify リンク解決のみ**（未設定なら表示側は検索 URL にフォールバック）。顔写真には使わない。
+- `STEAM_MAX_REQUESTS`（既定 600。search＋details の合計本数）／`STEAM_MIN_GAP_MS`（既定 1600）／`STEAM_RECHECK=1` … **ゲームの Steam 段のみ**。キーは不要（公式ストア API は無認証）。
 - 顔写真まわりのつまみ: `PHOTO_MIN_FAME`（P18 を試す閲覧数の下限。既定 5000）／`PHOTO_RECHECK=1`（「写真なし」の負キャッシュを引き直す）／`PHOTO_COMMONS=1`（Commons depicts 段を有効化。既定オフ・遅い）
 
 ## Architecture（big picture）
@@ -61,6 +67,16 @@ npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記�
 - **協会認定記念日（kinenbi.gr.jp＝日本記念日協会）** `sources/kinenbiDay.ts`＋取込 `importKinenbi.ts` → コミット済み `src/data/kinenbi.json`（fanweb と同じ「取込→静的 JSON」パターンだが、**新規認定を拾うため週次 CI でも実行**される）。日付検索はトップへの POST（`MD=1&M=月&D=日`）で、当日分は `today_kinenbibox01`（認定）→`box02`（その他=元日など伝統日）→`box03`（周年）のマーカー間にある——**box01 の外（新着サイドバー等）にも同形式リンクがあるので必ずスライスしてから抽出**（`parseKinenbiDay` は純関数＝smoketest 対象）。box02 は毎ページ共通の年間指定ノイズ（`2026 お風呂の年`）を `^\d{4}\s` で除外。名前の `＜４月を除く毎月１９日＞` 注記は `splitKinenbiName` で desc に分離。取込は取得0件の日を**前回値で維持**（週次実行でサイト障害時に空上書きしない）。`DayData` では Wikipedia 由来の `anniversaries` と**別キー `kinenbi`** で持ち、表示時に `src/lib/anniv.ts` の `mergeAnniversaries` でマージ（Wikipedia 先頭・正規化ラベルで重複排除、重複は kinenbi の由来ページ URL に昇格）——焼き込むと `KINENBI_ONLY` 再実行の冪等性が失われるため。**由来の本文は協会の著作文なのでコピーせず**、チップから由来ページ（`yurai.php`）へ新しいタブでリンクする（フッタに出典明記）。取込後の反映は `KINENBI_ONLY=1 npm run aggregate`（数秒）。
 - **キャラ**: 2 つの静的シードを当日分だけマージ（実行時 API なし）。(a) 手描きの curated `src/data/characters.json`（色つき）、(b) **bd.fan-web.jp 由来のバルク** `src/data/characters-fanweb.json`（全366日 ~7.5万件、名前＋作品名のみ）。マージは `aggregate.ts` の `buildCharacterMap`＝日ごと `name` で重複排除（curated 先勝ち）、fanweb 分の色は `colorForWork(work)`（作品名ハッシュ→固定 S/L の HSL）で自動導出。
 - **キャラの並び（`rankCharacters`）**: **作品の閲覧数(人気)降順 → 作品名（同作品を隣接）→ 作品内は seed 順**（`Array#sort` は安定）。作品の人気は**人物の fame と同じ仕組み**——作品名を jawiki のタイトルとみなして `resolveWorkFame()`（`scripts/lib/state.ts`）が pageMeta＋pageviews で解決し、同じ `state.pages`/`state.views` にキャッシュする（記事が無い作品は 0＝後ろへ）。初期表示は先頭40件なので、ここが**実質ランダムだと有名作品が埋もれる**（旧: fanweb のスクレイプ順そのまま）。
+- **発売されたゲームソフト** `sources/jawikiGameList.ts`（純関数パーサ）＋`sources/gameSources.ts`（機種→記事名）＋`sources/steamStore.ts`（PC）＋取込 `importGames.ts` → コミット済み `src/data/games.json`（~4.6万本・6.4MB）。kinenbi と同じ「取込→静的 JSON→aggregate は読むだけ」パターン（**新作を拾うため週次 CI でも実行**）。
+  - **ソースは日本語版Wikipedia の機種別「〈機種〉のゲームタイトル一覧」31機種**（バーチャルボーイのみ記事が無い）。PS/PS2/PS4/PS5/DS/Switch は年別サブ記事に分割されているが、**サブ記事名はハードコードせず** `list=allpages&apprefix=<親記事>&apfilterredir=nonredirects` で実行時に列挙する（年が進んで記事が増えても自動で追随する）。合計およそ60記事。
+  - **表の方言は 2 つだけ**で、どちらも「発売日 → タイトル → 発売元」の並び。(A) 日付セルが絶対日付（`2001年3月21日` / `{{dts|1988|10|29}}`。FC・SFC・GB・SS・PSP・3DS など）、(B) 日付セルが月日だけで年は節見出し `=== 2008年 ===` か記事名の `(2018年)` から（PS・PS2・PS4・PS5・DS・Switch など）。
+  - **列位置は決め打ちしない**——ヘッダの「発売日」セルの `colspan` からタイトル列を数える。海外版の発売日を併記する機種があり（メガドライブは 日本/北米/欧州/その他 の 4 列）、タイトル列の位置が機種ごとに違う。**日本の発売日は必ず先頭列**。
+  - **「発売日が先頭列でない表は読まない」が売上ランキング表を弾く唯一の確実な手**（`! 順位 !! タイトル !! 発売日` が同じ節に同居する）。節の拒否リスト（`発売されなかった`/`非売品`/`非ライセンス` など）は**表を直接含む最も深い見出しだけ**に当てる——PS Vita の年別記事は「発売ソフトの形態・変遷 > 発売されたタイトル」と入れ子で、親まで見ると本体の表ごと落ちる（実際に落ちていた）。
+  - `{{dts|1993|1|14|}}`（末尾に空パラメータ）・`{{0}}1月10日`・`<span id="1990"></span>`・`style="…"|`・`{{ubl|[[和名]]|English}}`・`{{仮リンク}}`・`<ref>` の複数行——実データで確認した表記ゆれを全部吸収する（`splitCells` は `[[ ]]`/`{{ }}` の内側の `|` を数えない）。`{{Unreleased}}`（国内未発売）と年月までしか分からない行は捨てる。**発売予定（未来日）も載せない**。
+  - **Steam（PC）だけは Steam 公式ストア API**（キー不要・日本語対応）。日本語版Wikipedia に Steam のタイトル一覧記事が無いため。候補は `Category:YYYY年のコンピュータゲーム`（2003年〜）のうち機種別一覧で拾えなかった記事名で、`storesearch`→`appdetails?cc=jp&l=japanese` の `release_date.date`（`2022年2月24日`）を引く。設計は Spotify 段の丸写し: **結果側で名前照合**・`src/data/steam.json` に正/負キャッシュ・**1実行あたりの送信上限（既定300）で次回に持ち越し**・429 でサーキットブレーカー。初回は一部しか埋まらず、週次 cron で数回かけて埋まる。
+  - **並びは 人気(閲覧数)降順 → 年の新しい順 → 名前**。人気はキャラの作品と**まったく同じ経路・同じキャッシュ**（`resolveWorkFame` / `state.pages` / `state.views`）で、一覧が `[[記事名]]` を直接持つので**タイトル照合が要らない＝精度が高い**。1日あたり最大数百本で初期表示は先頭30本なので、ここが実質ランダムだと有名作が埋もれる。
+  - **同じ日に同名が複数機種で出ていれば 1 件にまとめて機種名を連結する**（`aggregate.ts` の `buildGameMap`。『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。`games.json` 側は「1機種1行」で持つ——そうしておくと取込で**機種ごとに前回値フォールバック**できる。
+  - 取込後の反映は `npm run rank:games`（新しいタイトルの閲覧数を state に足す）→ `GAMES_ONLY=1 npm run aggregate`（数秒）。`rank:games` を先に回すのは `CHARS_ONLY` と同じ理由。
 - **占い/暦は生成しない**。年・月日から計算できるので**クライアント側**（`src/lib/almanac.ts`）で出す。
 
 ソース毎 `try/catch`、失敗時は**前回の per-day ファイル**へフォールバック（jawiki 誕生日が取れなかった日のみ people/animals を前回値に戻す）。横断キャッシュは `src/data/state.json`（`pages`: jawiki title→{qid,photo,正規化タイトル}（負キャッシュ `{}` 込み）、`views`: 正規化タイトル→年間閲覧数、`photos`: jawiki title→外部ソース由来の顔写真）。人物のタイトルも作品名も**同じキー空間（jawiki の記事タイトル）**なので同居させている。読み書き・解決は `scripts/lib/state.ts` に集約（`readState`/`writeState`/`ensurePages`/`ensurePageviews`/`ensurePhotos`/`resolveWorkFame`）＝ `aggregate.ts` と `rankWorks.ts` で共有。再実行時は未キャッシュの title/閲覧数/写真だけ取得。旧スキーマの `entities`/`translations` は `readState()` で破棄して state を軽く保つ。
@@ -85,11 +101,12 @@ npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記�
 - `src/pages/index.astro`: **サイトはこの1ページだけ**。年/月/日セレクトのフォーム（SSR）＋空の `#result`、末尾で `boot()` を起動。`components/Layout.astro` が head/OGP/フッタ（`title`/`description`/`canonical`/`image` の props）。
 - `src/pages/og/default.png.ts`: satori + resvg で **OG画像(1200x630)をビルド時に生成**（`src/lib/og.ts`）。静的ホスティングでは `?d=` ごとに OG を差し替えられないので**日付なしの汎用カード1枚**。PNG は**コミットしない**。
 - `src/app/main.ts` の `boot(root)`: クロージャ状態 ＋ `data-action` 委譲。フロー = 入力読取 → `isValidDate` 検証 → **per-day・per-year・per-学年 を `Promise.all` で並行 fetch**（学年は早生まれだと暦年の1つ前のファイルになるので別途引く。同じ年ならファイルを共用して余計な fetch をしない） → `almanac.ts` で暦を計算 → `render.ts` で `#result.innerHTML` を組み立て → `history.replaceState` で `?d=YYYY-MM-DD` 同期。ロード時に `?d=` があれば即描画。`normalizeDay`/`normalizeYear` が古い JSON の欠損キーを既定値で補う（**新キー追加時は必ずここも**）。**不正日付はフォーム直下の `.form-error`（role=alert）に出し、前回の結果と URL は消さない**（以前は `#result` を上書きしていて画面と `?d=` が食い違った）。**フォーム送信時だけ** `#result` へ `scrollIntoView`（`?d=` 付きロード時は飛ばさない。reduced-motion なら behavior:auto）。
-- `src/app/render.ts`: セクション別の HTML 文字列ビルダ（`esc()` で全データをエスケープ）。`resultHtml` が**唯一のセクション順序定義**。**全セクションは `<details class="section">` の折りたたみで初期は全閉**（`section()` ヘルパー1箇所で生成。`class="section"` は more.ts の `.closest(".section")` が依存するので変更不可。domtest も `.section` クラスで引く——`<section>` タグではないため）。診断ごとに `#result` は総入れ替えなので開閉状態は毎回リセット。🎂 セクション内に**その年の週間1位ぜんぶの一覧**（`chartListHtml`＝ネスト details）。誕生週のハイライトは **`w === song` の参照比較**——`songForBirthday` は chartWeeks の要素参照か prevYearLast を返すので、month/day 比較だと年始生まれ（song=前年末週）で当年の同月日週を誤ハイライトする。参照比較なら prevYearLast は一覧に無い＝自然にハイライト無し。ジャケットは有名人写真と同じ「プレースホルダ背面＋img 重ね＋onerror で戻る」流儀（`.cw-art`/🎵）。有名人カードは **イニシャルを背面に置き写真を被せる**方式（`.thumb[data-initials]` ＋ `img.photo onerror="this.remove()"`）＝写真が無い/失敗してもイニシャルが出る。**写真なしは例外ではなく一覧の 3〜4 割**（上記の構造的な理由）なので、プレースホルダは「主要な見た目」として作る: イニシャルは 2 文字（`今田美桜`→`今田`、`ゲオルク・オーム`→`ゲオ`）、`.thumb[data-cat]`（肩書きのカテゴリ＝`peers.ts` の `categorize`）で色相を出し分けて「読み込み失敗の灰色」ではなく「分類された色チップ」に見せる。キャラは1日 数百〜千件になりうるため（例 7/7 で ~1900 件）、有名人と同じく **先頭 `CHARS_VISIBLE`(=40) 件＋「もっと見る」遅延描画**。キャラ一覧は**作品ごとのグループ見出し**（`charRows`。作品人気順ソートで同一作品が隣接している前提。チップ側の作品名は省き、「もっと見る」境界では直前の作品名を引き継いで見出しの重複を防ぐ）。記念日セクションの見出しは**「M月D日は何の日」**（「今日」ではない）で、位置は「生まれた年」の直後（数百件のキャラ一覧の下だと辿り着けないため）。
+- `src/app/render.ts`: セクション別の HTML 文字列ビルダ（`esc()` で全データをエスケープ）。`resultHtml` が**唯一のセクション順序定義**。**全セクションは `<details class="section">` の折りたたみで初期は全閉**（`section()` ヘルパー1箇所で生成。`class="section"` は more.ts の `.closest(".section")` が依存するので変更不可。domtest も `.section` クラスで引く——`<section>` タグではないため）。診断ごとに `#result` は総入れ替えなので開閉状態は毎回リセット。🎂 セクション内に**その年の週間1位ぜんぶの一覧**（`chartListHtml`＝ネスト details）。誕生週のハイライトは **`w === song` の参照比較**——`songForBirthday` は chartWeeks の要素参照か prevYearLast を返すので、month/day 比較だと年始生まれ（song=前年末週）で当年の同月日週を誤ハイライトする。参照比較なら prevYearLast は一覧に無い＝自然にハイライト無し。ジャケットは有名人写真と同じ「プレースホルダ背面＋img 重ね＋onerror で戻る」流儀（`.cw-art`/🎵）。有名人カードは **イニシャルを背面に置き写真を被せる**方式（`.thumb[data-initials]` ＋ `img.photo onerror="this.remove()"`）＝写真が無い/失敗してもイニシャルが出る。**写真なしは例外ではなく一覧の 3〜4 割**（上記の構造的な理由）なので、プレースホルダは「主要な見た目」として作る: イニシャルは 2 文字（`今田美桜`→`今田`、`ゲオルク・オーム`→`ゲオ`）、`.thumb[data-cat]`（肩書きのカテゴリ＝`peers.ts` の `categorize`）で色相を出し分けて「読み込み失敗の灰色」ではなく「分類された色チップ」に見せる。キャラは1日 数百〜千件になりうるため（例 7/7 で ~1900 件）、有名人と同じく **先頭 `CHARS_VISIBLE`(=40) 件＋「もっと見る」遅延描画**。キャラ一覧は**作品ごとのグループ見出し**（`charRows`。作品人気順ソートで同一作品が隣接している前提。チップ側の作品名は省き、「もっと見る」境界では直前の作品名を引き継いで見出しの重複を防ぐ）。記念日セクションの見出しは**「M月D日は何の日」**（「今日」ではない）で、位置は「生まれた年」の直後（数百件のキャラ一覧の下だと辿り着けないため）。 **ゲームセクション（🎮）は記念日の直後・有名人の前**。⭐「生まれた日ちょうどに発売」を先頭ブロックに全件出し、残りを人気順で先頭30本＋「もっと見る」（`.game-block.exact` は `.year-people-block.exact` と同じ「色で立てる」流儀）。**誕生日と発売日がピタリ一致する確率は年代により 2〜5 割**なので ⭐ が出ない日も多く、月日一覧の方が本体（1日あたり中央値100本前後）。
 - `src/app/more.ts`: 「もっと見る」の click 委譲。描画済みの全件配列から残りを `insertAdjacentHTML` で足す（初期 DOM を軽く保つため、有名人30件・キャラ40件・同い年はカテゴリごと12件だけ先に描く）。同い年だけはカテゴリ別にグリッドが分かれるので、ボタンの `data-cat` と `[data-year-grid="<cat>"]` で対応づける。
 - `src/app/share.ts`: `?d=` の encode/decode・`isValidDate`/`daysInMonth`/`isLeap` の純関数（DOM 非依存・テスト対象）。
 - `src/lib/almanac.ts`: 星座/誕生石/誕生花/干支/和暦/世代/年齢 ＋ **ユリウス通日(JDN)ベース**の曜日/月齢/生誕日数/キリ番記念日/数秘ライフパス/九星の純関数。**`Date` を内部で使わない**（`ageOf`/`daysLivedOf` は基準日を引数で受ける）＝テスト可能。
 - `src/lib/days.ts`: `allDays()`（366日の列挙）。`aggregate.ts` が全日を回すのに使う（`aggregateYears.ts` の逆引きも）。
+- `src/lib/games.ts`: 「同じ誕生日に発売されたゲーム」の**再カット**（新ソース無し）。`exactGamesOf(games, year)` が生年まで一致するもの（⭐）を抜き、`withoutExactGames` がそれを月日一覧から除く＝同一セクション内の二重表示を防ぐ。**この切り方は `render.ts` と `main.ts`（もっと見る用の配列）の両方で同じに再現する必要がある**（`peers.ts` の exact と同じ注意）。
 - `src/lib/peers.ts`: 「同じ学年の有名人」セクションの学年判定・分類（新ソース無し。`oshi.ts` と同じ思想）。
   - `cohortYearOf(ymd)`: その生年月日が属する**学年（年度）**＝ `4/2 〜 翌4/1`。**4月1日生まれは早生まれで前の学年**（年齢は誕生日の前日終了時に加算されるため）。1995/6/18→1995年度、1995/3/15→1994年度、1995/4/1→1994年度、1995/4/2→1995年度。
   - `categorize(desc)`: 肩書きを 芸能/スポーツ/音楽/文化・アート/その他 に分ける——**最初にマッチしたキーワードの位置が最も早いカテゴリ**を採るので、jawiki の肩書きが主業を先頭に置く性質（「元アナウンサー、タレント」→芸能、「歌手、俳優」→音楽）に沿う。「陸上」ではなく「陸上競技」で見ている（陸上自衛官を拾わないため）。
@@ -147,6 +164,7 @@ npm run aggregate 03-15   # 指定日のみ（デバッグ）
 - 人気（並び替え指標＝閲覧数）: **日本語版Wikipediaの年間閲覧数**（Wikimedia REST **pageviews API**、別ホスト）。`sources/jawikiPageviews.ts`。人物は増やさず並び順にだけ使う。並びは 閲覧数降順→写真→生年新しい順、**全件保存**し表示は先頭30＋もっと見る（遅延描画）。**metrics APIは1IP~6並列で429**のため日並列と無関係に総同時実行6の共有セマフォで絞る（`gate:false`）。旧Wikidata sitelink方式（世界的知名度で米大統領等が上位に来てズレる）は廃止
 - 今日は何の日: 同じ `fetchDayInfo`（**節indexはページ毎に違うので section一覧から名前で引く**）
 - キャラ: 手動JSON `src/data/characters.json`＋fanwebバルク（名前＋作品名＋色チップ。**アニメ・漫画キャラは AniList 画像つき**＝`src/data/anilist.json`）
+- 発売されたゲーム: 日本語版Wikipedia の機種別「〈機種〉のゲームタイトル一覧」31機種（年別サブ記事は allpages で自動列挙）＋ PC は Steam 公式ストア API（キー不要）。取込 → `src/data/games.json`
 - 占い/暦: `src/lib/almanac.ts` で計算（API不要）
 
 **Gotcha**: 人物は日本語版由来なので肩書きは初めから日本語（旧・英語版マージ＋翻訳は廃止）。キャッシュ/失敗フォールバックは `src/data/state.json`（`pages`＋`views`）＋前回per-dayファイル。`color-scheme: light dark` 宣言＋ `prefers-color-scheme: dark` の正規ダークテーマで自動ダークモード対策（ただし Chrome の force-dark フラグ有効環境はCSSから抑止不可＝paint層で強制）。Tailwind v4 + Astro 型不一致は `astro.config.mjs` で `any` キャスト、`base: "/samesaengil"`。`src/app/*`・`src/lib/*` は tsx テストのため**相対import**（@エイリアス不可）。

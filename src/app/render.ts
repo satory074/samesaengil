@@ -1,7 +1,8 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
-import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Person, YearData, YearPerson } from "../lib/types";
+import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Game, Person, YearData, YearPerson } from "../lib/types";
 import { mergeAnniversaries } from "../lib/anniv";
+import { exactGamesOf, gameLink, withoutExactGames } from "../lib/games";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   CAT_LABELS,
@@ -454,6 +455,57 @@ export function anniversaryHtml(
   return section("📅", title, body, merged.length || undefined);
 }
 
+/* ---------- 同じ誕生日に発売されたゲーム ---------- */
+/** 月日一覧の初期表示件数。これを超える分は「もっと見る」で展開。 */
+const GAMES_VISIBLE = 30;
+
+function gameRow(g: Game): string {
+  const href = gameLink(g);
+  const label = `<span class="g-year">${g.year}</span><span class="g-name">${esc(g.name)}</span><span class="g-plat">${esc(
+    g.platform,
+  )}</span>`;
+  // 記念日チップ・charChip と同じ分岐流儀（url があれば a、無ければ span）。
+  return href
+    ? `<li class="grow"><a href="${esc(href)}" target="_blank" rel="noopener">${label}</a></li>`
+    : `<li class="grow"><span>${label}</span></li>`;
+}
+
+/**
+ * その月日に発売されたゲーム。生年まで一致するもの（⭐）を先頭に出し、
+ * 残りは人気（日本語版Wikipedia の年間閲覧数）順で先頭 GAMES_VISIBLE 件＋「もっと見る」。
+ * 誕生日と発売日がピタリ一致する確率は 2〜5 割なので、⭐ が無い日でも月日一覧で必ず中身が出る。
+ */
+export function gamesHtml(input: YMD, games: Game[]): string {
+  if (games.length === 0) return "";
+  const exact = exactGamesOf(games, input.year);
+  const rest = withoutExactGames(games, exact);
+
+  const exactBlock = exact.length
+    ? `<div class="game-block exact"><h3>⭐ あなたが生まれた日に発売（${exact.length}本）</h3><ol class="game-list">${exact
+        .map(gameRow)
+        .join("")}</ol></div>`
+    : "";
+
+  const visible = rest.slice(0, GAMES_VISIBLE).map(gameRow).join("");
+  const restCount = Math.max(0, rest.length - GAMES_VISIBLE);
+  const more = restCount
+    ? `<button class="more-btn" data-action="show-more-games">もっと見る（＋${restCount}本）</button>`
+    : "";
+  const restBlock = rest.length
+    ? `<div class="game-block"><h3>${input.month}月${input.day}日に発売されたゲーム${
+        restCount ? `（${rest.length}本中${GAMES_VISIBLE}本）` : `（${rest.length}本）`
+      }</h3><ol class="game-list" data-games-list>${visible}</ol>${more}</div>`
+    : "";
+
+  const credit = `<p class="credit">出典: 日本語版Wikipedia の機種別「ゲームタイトル一覧」／PC は <a href="https://store.steampowered.com/" target="_blank" rel="noopener">Steam</a>（人気＝記事の年間閲覧数の順）</p>`;
+  return section("🎮", "同じ誕生日に発売されたゲーム", `${exactBlock}${restBlock}${credit}`, games.length);
+}
+
+/** 「もっと見る」で追加描画する残り（⭐を除いた一覧の先頭 GAMES_VISIBLE 件より後ろ）。 */
+export function gamesMoreHtml(games: Game[]): string {
+  return games.slice(GAMES_VISIBLE).map(gameRow).join("");
+}
+
 /* ---------- 共有 ---------- */
 export function shareHtml(): string {
   return section(
@@ -501,6 +553,7 @@ export function resultHtml(
     bornYearHtml(input, year) +
     // 記念日は飲み会ネタとして鮮度が高いのに、数百件のキャラ一覧の下だと誰も辿り着けないのでここに置く。
     anniversaryHtml(input, day.anniversaries, day.kinenbi, day.events) +
+    gamesHtml(input, day.games) +
     peopleHtml(day.people) +
     oshiHtml(day.people, day.characters) +
     sameYearHtml(input, day, cohort) +

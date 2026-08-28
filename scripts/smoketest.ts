@@ -5,6 +5,7 @@
 // 4) portrait / initials（顔写真の照合ロジックと、写真が無いカードの見た目）
 // 5) spotify（曲の照合・ジャケット選択・キャッシュ互換読み）
 // 6) kinenbi / anniv（日本記念日協会のパースと Wikipedia とのマージ）
+// 7) games（機種別「ゲームタイトル一覧」のパースと、⭐ 生まれた日ちょうどの切り分け）
 import {
   ageOf,
   birthFlowerOf,
@@ -52,8 +53,17 @@ import { charNameMatches, mediaTitleMatches, normName } from "./lib/charMatch";
 import { entryOf, pickCover, pickTrack } from "./sources/spotify";
 import { kinenbiUrl, parseKinenbiDay, splitKinenbiName } from "./sources/kinenbiDay";
 import { mergeAnniversaries, normalizeAnnivLabel } from "../src/lib/anniv";
+import {
+  parseDateCell,
+  parseGameList,
+  parseTitleCell,
+  splitCells,
+  yearOfArticle,
+} from "./sources/jawikiGameList";
+import { normalizeTitle, parseSteamDate, titlesMatch } from "./sources/steamStore";
+import { exactGamesOf, gameLink, withoutExactGames } from "../src/lib/games";
 import { initials } from "../src/app/render";
-import type { Character, Person, YearData, YearPerson } from "../src/lib/types";
+import type { Character, Game, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -551,6 +561,129 @@ function assert(cond: boolean, msg: string): void {
   assert(kinOnly.length === 2 && kinOnly[0].label === "靴の記念日", "Wikipedia 空でも kinenbi 全件");
   assert(mergeAnniversaries(wiki, []).length === 2, "kinenbi 空でも Wikipedia 全件");
   console.log("[anniv] OK");
+}
+
+// ---- 発売されたゲーム: 機種別一覧のパース（scripts/sources/jawikiGameList.ts）----
+{
+  // 方言A: 日付セルが絶対日付。日本/北米/欧州の 3 列ぶんが colspan="3" にまとまっている。
+  const dialectA = [
+    "== 発売されたタイトル ==",
+    '{| class="wikitable sortable"',
+    '! colspan="3"|発売日 !! rowspan="2"|タイトル !! rowspan="2"|発売元 !! rowspan="2"|備考',
+    "|-",
+    "!日本 !! 北米 !! 欧州",
+    "|-",
+    '|style="white-space:pre" |<span id="1990"></span>1990年11月21日||{{dts|August 23, 1991}}||{{dts|April 11, 1992}}||[[F-ZERO]]||[[任天堂]]||ローンチタイトル<ref name="x">{{Cite web|和書',
+    "|url=https://example.com",
+    "|title=なにか}}</ref>",
+    "|-",
+    "|{{dts|1993|1|14|}}||{{Unreleased}}||{{Unreleased}}||{{ubl|[[ジノーグ]]|Wings of Wor}}||メサイヤ||",
+    "|-",
+    "|{{Unreleased}}||{{dts|July 1990|format=y}}||{{Unreleased}}||[[日本未発売ソフト]]||セガ||",
+    "|-",
+    "|{{dts|1991|1}}||{{Unreleased}}||{{Unreleased}}||月までしか分からないソフト||セガ||",
+    "|}",
+    "== 発売されなかったタイトル ==",
+    '{| class="wikitable"',
+    "! 発売日 !! タイトル !! 発売元",
+    "|-",
+    "|1994年5月1日||[[幻のソフト]]||どこか",
+    "|}",
+  ].join("\n");
+  const a = parseGameList(dialectA);
+  assert(a.length === 2, `方言A は 2 行（実際: ${a.length}）`);
+  assert(a[0].year === 1990 && a[0].month === 11 && a[0].day === 21, "属性と span を落として絶対日付を読む");
+  assert(a[0].name === "F-ZERO" && a[0].title === "F-ZERO", "タイトル列は colspan の次（北米/欧州の日付を飛ばす）");
+  assert(a[1].year === 1993 && a[1].month === 1 && a[1].day === 14, "{{dts|1993|1|14|}} の末尾空パラメータ");
+  assert(a[1].name === "ジノーグ", "{{ubl|[[和名]]|English}} は和名を採る");
+  assert(!a.some((g) => g.name === "日本未発売ソフト"), "日本の欄が {{Unreleased}} の行は落とす");
+  assert(!a.some((g) => g.name.includes("月までしか")), "年月までしか分からない行は落とす");
+  assert(!a.some((g) => g.name === "幻のソフト"), "「発売されなかったタイトル」節は読まない");
+
+  // 方言B: 日付セルは月日だけ。年は節見出し（無ければ記事名の「(2018年)」）から。
+  const dialectB = [
+    "== 発売されたタイトル ==",
+    "=== 2018年 ===",
+    '{| class="wikitable"',
+    '! rowspan="2" style="width:3.5em" | 発売日 !! rowspan="2" | タイトル !! rowspan="2" | 発売元',
+    "|-",
+    "|{{0}}1月10日||[[Van Helsing II]]||Stimtech",
+    "|-",
+    "|1月11日||{{仮リンク|プリンス オブ ペルシャ 失われた王冠|en|Prince of Persia}}||ユービーアイソフト",
+    "|-",
+    "|1月12日||[[ディシディア ファイナルファンタジー (アーケードゲーム)|ディシディア ファイナルファンタジー NT]]||スクウェア・エニックス",
+    "|}",
+  ].join("\n");
+  const b = parseGameList(dialectB, 1999);
+  assert(b.length === 3, `方言B は 3 行（実際: ${b.length}）`);
+  assert(b[0].year === 2018 && b[0].month === 1 && b[0].day === 10, "節見出しの年を使う（{{0}} は無視）");
+  assert(b[1].name === "プリンス オブ ペルシャ 失われた王冠" && !b[1].title, "{{仮リンク}} は表示名のみ（記事は無い）");
+  assert(
+    b[2].name === "ディシディア ファイナルファンタジー NT" && b[2].title === "ディシディア ファイナルファンタジー (アーケードゲーム)",
+    "[[記事名|表示名]] は表示名と記事名を分けて持つ",
+  );
+  // 節に年が無ければ記事名から（Switch の年別記事は節が「1月」なので）。
+  const noYearSection = ["== 発売されたタイトル ==", "=== 12月 ===", '{| class="wikitable"', "! 発売日 !! タイトル", "|-", "| 12月{{0}}1日 || [[Astronite]]", "|}"].join("\n");
+  assert(parseGameList(noYearSection, 2022)[0].year === 2022, "節に年が無ければ記事名の年で補う");
+
+  // 「順位/タイトル/発売日」の売上ランキング表は発売日が先頭列でないので読まない。
+  const ranking = ["== 発売ソフトの形態・変遷 ==", '{| class="wikitable"', "! 順位 !! タイトル !! 発売日", "|-", "|1位||[[おいでよ どうぶつの森]]||2005年11月23日", "|}"].join("\n");
+  assert(parseGameList(ranking).length === 0, "売上ランキング表は読まない（発売日が先頭列でない）");
+  // 「配信日」も発売日の同義語（Xbox のダウンロード専用タイトル表）。
+  const haishin = ["== 配信専用タイトル ==", '{| class="wikitable"', "!配信日 !! タイトル", "|-", "|2024年1月8日||[[ドラゴンシンカー]]", "|}"].join("\n");
+  assert(parseGameList(haishin).length === 1, "「配信日」列の表も読む");
+
+  assert(yearOfArticle("Nintendo Switchのゲームタイトル一覧 (2022年)") === 2022, "記事名から年");
+  assert(yearOfArticle("PlayStation 4のゲームタイトル一覧 (2014年-2015年)") === null, "年の範囲は補わない（節見出しで決める）");
+  assert(yearOfArticle("ファミリーコンピュータのゲームタイトル一覧") === null, "年が無い記事名");
+
+  // セル分割はテンプレート・リンクの内側の | を数えない。
+  const cells = splitCells("\n|1月10日||[[A|B]]||{{Cite web|和書|url=https://x}}||メモ");
+  assert(cells.length === 4, `セルは4つ（実際: ${cells.length}）`);
+  assert(cells[1].includes("[[A|B]]"), "リンク内の | でセルを割らない");
+  assert(cells[2].includes("url=https://x"), "テンプレート内の | でセルを割らない");
+
+  assert(parseDateCell("1990年11月21日", null)?.month === 11, "絶対日付");
+  assert(parseDateCell("1月10日", 2018)?.year === 2018, "月日＋節の年");
+  assert(parseDateCell("1月10日", null) === null, "年が分からなければ捨てる");
+  assert(parseDateCell("{{Unreleased}}", 2018) === null, "国内未発売は捨てる");
+  assert(parseTitleCell("[[ポパイ (任天堂)|ポパイ]]")?.title === "ポパイ (任天堂)", "曖昧さ回避つき記事名");
+  assert(parseTitleCell("[[作品#移植版|フリッキー]]")?.title === "作品", "節リンクは記事名だけ");
+  assert(parseTitleCell("[[X]]<br />English Title")?.name === "X", "<br /> 以降の英題は捨てる");
+  assert(parseTitleCell('<span style="display:none">ふ02</span>[[THE 功夫]]')?.name === "THE 功夫", "ソートキーの span を落とす");
+  assert(parseTitleCell("[[RESISTANCE]]*")?.name === "RESISTANCE", "末尾の注記アスタリスクを落とす");
+  console.log("[games/jawiki] OK");
+}
+
+// ---- 発売されたゲーム: Steam 公式ストア（scripts/sources/steamStore.ts）----
+{
+  assert(parseSteamDate("2022年2月24日") === "2022-02-24", "日本語の発売日");
+  assert(parseSteamDate("2022年2月") === null, "月までしか分からなければ捨てる");
+  assert(parseSteamDate("24 Feb, 2022") === "2022-02-24", "英語表記のフォールバック");
+  assert(normalizeTitle("ELDEN RING") === normalizeTitle("elden　ring"), "全角空白・大小を吸収");
+  assert(titlesMatch("ヘブンバーンズレッド", "ヘブンバーンズレッド"), "完全一致");
+  assert(titlesMatch("Hades II", "Hades"), "副題の有無は包含一致で吸収");
+  assert(!titlesMatch("Portal", "Half-Life"), "無関係なタイトルは一致しない");
+  console.log("[games/steam] OK");
+}
+
+// ---- 発売されたゲーム: ⭐ の切り分け（src/lib/games.ts）----
+{
+  const games: Game[] = [
+    { name: "人気ゲーム", year: 2004, platform: "PS2", title: "A" },
+    { name: "生まれた日のゲーム", year: 1995, platform: "スーパーファミコン" },
+    { name: "別機種の同名", year: 1995, platform: "PS", appid: 1 },
+    { name: "リンクなし", year: 1999, platform: "DC" },
+  ];
+  const exact = exactGamesOf(games, 1995);
+  assert(exact.length === 2, `1995年発売は2本（実際: ${exact.length}）`);
+  const rest = withoutExactGames(games, exact);
+  assert(rest.length === 2 && !rest.some((g) => g.year === 1995), "⭐ に出したものは一覧から除く");
+  assert(withoutExactGames(games, []).length === 4, "⭐ が空なら全件そのまま");
+  assert(gameLink(games[0]) === "https://ja.wikipedia.org/wiki/A", "jawiki 記事が最優先");
+  assert(gameLink(games[2]) === "https://store.steampowered.com/app/1/", "記事が無ければ Steam");
+  assert(gameLink(games[3]) === "", "どちらも無ければ空");
+  console.log("[games/lib] OK");
 }
 
 console.log("\n✅ smoketest passed");

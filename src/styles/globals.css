@@ -765,6 +765,70 @@ a.anniv:hover {
   margin-top: 10px;
 }
 
+/* ---- 発売されたゲーム ---- */
+.game-block + .game-block {
+  margin-top: 20px;
+}
+.game-block h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+/* 生まれた日ちょうどに出たソフトはこのセクションの主役なので色で立てる（同学年の ⭐ と同じ流儀）。 */
+.game-block.exact h3 {
+  color: var(--pink);
+}
+.game-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.game-list .grow > a,
+.game-list .grow > span {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  padding: 6px 4px;
+  border-top: 1px dashed var(--border);
+  color: inherit;
+  text-decoration: none;
+}
+.game-block.exact .game-list .grow > a,
+.game-block.exact .game-list .grow > span {
+  background: var(--pink-soft);
+  border-radius: var(--radius-sm);
+  border-top-color: transparent;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+}
+.game-list .g-year {
+  flex: none;
+  min-width: 38px;
+  font-weight: 800;
+  color: var(--pink);
+}
+.game-list .g-name {
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.game-list .g-plat {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.game-block .more-btn {
+  margin-top: 10px;
+}
+
 /* ---- 共有 ---- */
 .share-row {
   display: flex;

@@ -58,6 +58,13 @@ const SAMPLE: DayData = {
   ],
   events: [{ year: 2013, text: "新幹線200系電車引退。" }],
   updatedAt: "2026-06-30T00:00:00Z",
+  // 人気順で並んでいる前提（aggregate 側で済ませてある）。1995 のものが「⭐ 生まれた日ちょうど」。
+  games: [
+    { name: "人気ゲーム", year: 2004, platform: "PS2", title: "NinkiGame" },
+    { name: "生まれた日のゲーム", year: 1995, platform: "スーパーファミコン", title: "BirthGame" },
+    { name: "リンクなしゲーム", year: 1999, platform: "ドリームキャスト" },
+    { name: "Steam のゲーム", year: 2016, platform: "Steam", appid: 1 },
+  ],
 };
 
 const yp = (name: string, desc: string, day: number): YearPerson => ({
@@ -270,6 +277,34 @@ function submit(dom: JSDOM, root: Element): void {
     "spotify 無しは検索 URL にフォールバック",
   );
 
+  // 発売されたゲーム。1995 の1本は「⭐ 生まれた日ちょうど」に出て、月日一覧からは除かれる。
+  assert(
+    [...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("同じ誕生日に発売されたゲーム")),
+    "ゲームセクションがある",
+  );
+  const exactGameRows = [...result.querySelectorAll(".game-block.exact .grow")];
+  assert(exactGameRows.length === 1, `⭐ は1本（実際: ${exactGameRows.length}）`);
+  assert(exactGameRows[0].textContent!.includes("生まれた日のゲーム"), "⭐ に生年一致のソフト");
+  assert(exactGameRows[0].textContent!.includes("スーパーファミコン"), "機種名チップ");
+  const gameRows = [...result.querySelectorAll("[data-games-list] .grow")];
+  assert(gameRows.length === 3, `月日一覧は残り3本（実際: ${gameRows.length}）`);
+  assert(
+    !gameRows.some((r) => r.textContent!.includes("生まれた日のゲーム")),
+    "⭐ に出したソフトは月日一覧に重複して出ない",
+  );
+  assert(
+    gameRows[0].querySelector("a")!.getAttribute("href") === "https://ja.wikipedia.org/wiki/NinkiGame",
+    "jawiki 記事へのリンク",
+  );
+  assert(
+    gameRows.some((r) => r.querySelector("a")?.getAttribute("href") === "https://store.steampowered.com/app/1/"),
+    "jawiki 記事が無ければ Steam へリンク",
+  );
+  assert(
+    gameRows.some((r) => !r.querySelector("a") && r.textContent!.includes("リンクなしゲーム")),
+    "リンクが無い行は a にしない",
+  );
+
   // 有名人カード（「同じ誕生日の有名人」セクションのグリッド＝data-people-grid に限定して数える）
   const pcards = result.querySelectorAll("[data-people-grid] .pcard");
   assert(pcards.length === 3, `有名人カード3件（実際: ${pcards.length}）`);
@@ -407,6 +442,8 @@ function submit(dom: JSDOM, root: Element): void {
     animals: [
       { name: "テスト馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 5 },
     ],
+    // 入力年（2000）と一致するものが無い＝⭐ が出ないケースも同時に確認する。
+    games: Array.from({ length: 35 }, (_, i) => ({ name: `ゲーム${i}`, year: 1999, platform: "PS2" })),
   };
   const dom = setupDom("https://example.com/samesaengil/");
   // 年データが無い年（範囲外＝404）でも壊れないことも同時に確認する。
@@ -440,6 +477,16 @@ function submit(dom: JSDOM, root: Element): void {
   await tick();
   assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 35, "クリックで35枚に増える");
   assert(!result.querySelector('[data-action="show-more-people"]'), "ボタンは消える");
+
+  // ゲームも同じ流儀。入力年に一致するソフトが無いので ⭐ ブロックは出ない。
+  assert(!result.querySelector(".game-block.exact"), "生年一致が無ければ ⭐ ブロックは出ない");
+  assert(result.querySelectorAll("[data-games-list] .grow").length === 30, "ゲームも初期は30本のみ描画");
+  const gameMore = result.querySelector('[data-action="show-more-games"]') as HTMLElement;
+  assert(!!gameMore && gameMore.textContent!.includes("＋5"), `ゲームの残り5本表示（実際: ${gameMore?.textContent}）`);
+  gameMore.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await tick();
+  assert(result.querySelectorAll("[data-games-list] .grow").length === 35, "クリックで35本に増える");
+  assert(!result.querySelector('[data-action="show-more-games"]'), "ゲームのボタンは消える");
   console.log("[dom] もっと見る遅延描画 OK");
 }
 

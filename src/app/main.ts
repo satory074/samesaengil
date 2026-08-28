@@ -1,9 +1,10 @@
 // クライアント側のブート・状態・イベント配線。
 // フロー: 生年月日入力 → 該当日の JSON を fetch → 暦を計算 → セクション描画 → ?d= 同期。
-import type { Character, DayData, Person, YearData, YearPerson } from "../lib/types";
+import type { Character, DayData, Game, Person, YearData, YearPerson } from "../lib/types";
 import type { YMD } from "../lib/almanac";
 import { siteLink } from "../lib/url";
 import { cohortYearOf, exactMatchesOf, withoutExact } from "../lib/peers";
+import { exactGamesOf, withoutExactGames } from "../lib/games";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
 import { loadingHtml, resultHtml } from "./render";
 import { wireMoreButtons } from "./more";
@@ -34,6 +35,8 @@ export function boot(root: HTMLElement): void {
   let lastCharacters: Character[] = [];
   // 直近の同い年の有名人（「もっと見る」の遅延描画用。render と同じく ⭐ 完全一致の分は除いてある）。
   let lastYearPeople: YearPerson[] = [];
+  // 直近の発売ゲーム（「もっと見る」の遅延描画用。render と同じく ⭐ 生まれた日ちょうどの分は除いてある）。
+  let lastGames: Game[] = [];
 
   function readInput(): YMD {
     return {
@@ -89,6 +92,7 @@ export function boot(root: HTMLElement): void {
       kinenbi: d?.kinenbi ?? [],
       events: d?.events ?? [],
       updatedAt: d?.updatedAt ?? "",
+      games: d?.games ?? [],
     };
   }
 
@@ -176,6 +180,7 @@ export function boot(root: HTMLElement): void {
     lastCharacters = day.characters;
     // render 側と同じ切り方（⭐ に出した人はカテゴリ側に出さない）。
     lastYearPeople = cohort ? withoutExact(cohort.people, exactMatchesOf(day.people, input.year)) : [];
+    lastGames = withoutExactGames(day.games, exactGamesOf(day.games, input.year));
     last = { input, firstPerson: day.people[0]?.name };
   }
 
@@ -211,6 +216,7 @@ export function boot(root: HTMLElement): void {
     people: () => lastPeople,
     characters: () => lastCharacters,
     yearPeople: () => lastYearPeople,
+    games: () => lastGames,
   });
 
   async function copyLink(btn: HTMLElement): Promise<void> {

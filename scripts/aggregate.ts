@@ -9,10 +9,11 @@
 //   CHARS_ONLY=1 npm run aggregate  … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
 //   PHOTOS_ONLY=1 npm run aggregate … 日ページを叩かず、写真の無い人だけ外部ソースで補完して photo を差し替え
 //   KINENBI_ONLY=1 npm run aggregate … Wikipedia を叩かず kinenbi（協会認定記念日）だけ差し替え
+//   GAMES_ONLY=1 npm run aggregate  … Wikipedia を叩かず games（発売されたゲーム）だけ差し替え
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
-import type { Anniversary, Character, DayData, DayEvent, Person } from "../src/lib/types";
+import type { Anniversary, Character, DayData, DayEvent, Game, Person } from "../src/lib/types";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { kinenbiUrl, splitKinenbiName, type KinenbiEntry } from "./sources/kinenbiDay";
 import { mapLimit } from "./lib/util";
@@ -99,6 +100,85 @@ function readKinenbiMap(): Map<string, Anniversary[]> {
     const arr = map.get(key) ?? [];
     arr.push({ ...splitKinenbiName(r.name), url: kinenbiUrl(r) });
     map.set(key, arr);
+  }
+  return map;
+}
+
+/** 発売されたゲームの取込 JSON（src/data/games.json、コミット済み）の 1 行。 */
+type GameSeedRow = {
+  name: string;
+  title?: string;
+  year: number;
+  month: number;
+  day: number;
+  platform: string;
+  appid?: number;
+};
+
+function readGameSeeds(): GameSeedRow[] {
+  const rows = readJson<GameSeedRow[]>(path.join(ROOT, "src", "data", "games.json"), []);
+  if (rows.length === 0) {
+    console.warn("[aggregate] src/data/games.json が空です。先に npm run import:games を実行してください。");
+  }
+  return rows;
+}
+
+/** ゲームの人気解決に使う jawiki 記事タイトル（ユニーク）。 */
+function allGameTitles(seeds: GameSeedRow[]): string[] {
+  return [...new Set(seeds.map((g) => g.title).filter((t): t is string => Boolean(t)))];
+}
+
+/** 同日同名をまとめるためのキー（記号と空白の揺れを吸収）。 */
+function gameKey(g: GameSeedRow): string {
+  return `${g.year}|${g.name.normalize("NFKC").toLowerCase().replace(/[\s　]+/g, "")}`;
+}
+
+/**
+ * 取込 JSON を MM-DD -> Game[] にまとめる。実行時 API なし。
+ * 同じ日に同名が複数機種で出ていれば 1 件にして機種名を連結する
+ * （『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。
+ * 並びは人物・キャラと同じ規範で 人気(閲覧数)降順 → 年の新しい順 → 名前。
+ */
+function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>): Map<string, Game[]> {
+  const byDay = new Map<string, Map<string, { seed: GameSeedRow; platforms: string[] }>>();
+  for (const g of seeds) {
+    if (!g.name || !g.year || !g.month || !g.day) continue;
+    const key = `${pad(g.month)}-${pad(g.day)}`;
+    const day = byDay.get(key) ?? new Map();
+    byDay.set(key, day);
+    const k = gameKey(g);
+    const hit = day.get(k);
+    if (!hit) {
+      day.set(k, { seed: g, platforms: [g.platform] });
+      continue;
+    }
+    if (!hit.platforms.includes(g.platform)) hit.platforms.push(g.platform);
+    // jawiki 記事へのリンクは、持っている行があればそれを採る。
+    if (!hit.seed.title && g.title) hit.seed = { ...hit.seed, title: g.title };
+    if (!hit.seed.appid && g.appid) hit.seed = { ...hit.seed, appid: g.appid };
+  }
+
+  const map = new Map<string, Game[]>();
+  for (const [key, day] of byDay) {
+    // 人気(閲覧数)降順 → 年の新しい順 → 名前。1日 最大数百件で初期表示は先頭30件なので並びが効く。
+    const ranked = [...day.values()]
+      .map(({ seed, platforms }) => ({ seed, platforms, fame: fame.get(seed.title ?? "") ?? 0 }))
+      .sort((a, b) => {
+        if (b.fame !== a.fame) return b.fame - a.fame;
+        if (b.seed.year !== a.seed.year) return b.seed.year - a.seed.year;
+        return a.seed.name.localeCompare(b.seed.name, "ja");
+      });
+    map.set(
+      key,
+      ranked.map<Game>(({ seed, platforms }) => ({
+        name: seed.name,
+        year: seed.year,
+        platform: platforms.join("・"),
+        // URL ではなく記事タイトル／appid を持つ（per-day を膨らませないため。types.ts の Game 参照）。
+        ...(seed.title ? { title: seed.title } : {}),
+        ...(seed.appid ? { appid: seed.appid } : {}),
+      })),
+    );
   }
   return map;
 }
@@ -384,6 +464,29 @@ async function run(): Promise<void> {
     return;
   }
 
+  // 高速適用パス: Wikipedia を叩かず、既存 per-day ファイルの games だけ差し替える。
+  // import:games / rank:games の後、全366日へ数秒で反映するための経路（KINENBI_ONLY と同型・冪等）。
+  if (process.env.GAMES_ONLY) {
+    const seeds = readGameSeeds();
+    const gameFame = await resolveWorkFame(allGameTitles(seeds), state, true); // キャッシュ済みの人気だけ使う
+    const gameMap = buildGameMap(seeds, gameFame);
+    let updated = 0;
+    let missing = 0;
+    for (const { month, day } of selectDays()) {
+      const key = `${pad(month)}-${pad(day)}`;
+      const filePath = path.join(DAYS_DIR, `${key}.json`);
+      const prev = readJson<DayData | null>(filePath, null);
+      if (!prev) {
+        missing++;
+        continue; // ファイルが無い日はスキップ（まず通常 aggregate が必要）
+      }
+      writeJson(filePath, { ...prev, games: gameMap.get(key) ?? [], updatedAt: new Date().toISOString() });
+      updated++;
+    }
+    console.log(`[aggregate] GAMES_ONLY 完了: 更新${updated} / 欠落${missing}日`);
+    return;
+  }
+
   // キャラの並び替えに使う「作品の人気」（＝作品記事の年間閲覧数）。人物の fame と同じ仕組み・
   // 同じキャッシュ（state.pages/views）。CHARS_ONLY は Wikipedia を叩かずキャッシュ済みの分だけ使う。
   const fame = await resolveWorkFame(allWorks(), state, charsOnly);
@@ -415,6 +518,12 @@ async function run(): Promise<void> {
   }
 
   const kinenbiMap = readKinenbiMap(); // コミット済み JSON を読むだけ（実行時 API なし）
+
+  // ゲームも同じく取込済み JSON を読むだけ。並び替え用の人気はキャラの作品と同じ経路・同じキャッシュ。
+  const gameSeeds = readGameSeeds();
+  const gameFame = await resolveWorkFame(allGameTitles(gameSeeds), state);
+  const gameMap = buildGameMap(gameSeeds, gameFame);
+  console.log(`[aggregate] ゲーム: ${gameSeeds.length}本 / 人気解決 ${[...gameFame.values()].filter((v) => v > 0).length}件`);
 
   const single = days.length === 1;
   // 日単位で並列（Wikimedia への礼儀として控えめ）。AGG_CONCURRENCY で上書き可。
@@ -473,6 +582,7 @@ async function run(): Promise<void> {
       kinenbi: kinenbiMap.get(key) ?? [],
       events,
       updatedAt: new Date().toISOString(),
+      games: gameMap.get(key) ?? [],
     };
     writeJson(filePath, out);
 
@@ -484,7 +594,7 @@ async function run(): Promise<void> {
       ok++;
     }
     if (single) {
-      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length}+協会${out.kinenbi.length} / できごと${events.length}`);
+      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length}+協会${out.kinenbi.length} / できごと${events.length} / ゲーム${out.games.length}`);
     } else if (done % 20 === 0) {
       console.log(`  …${done}/${days.length}`);
       writeState(state); // 途中保存（落ちてもキャッシュが残る）

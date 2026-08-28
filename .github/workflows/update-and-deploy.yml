@@ -39,6 +39,18 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run import:kinenbi
 
+      # 発売されたゲーム（機種別「ゲームタイトル一覧」＋Steam 公式ストア）。
+      # aggregate より前に回して、直後の aggregate が per-day JSON の games キーへ反映する。
+      # Steam は 1 実行あたりの送信上限で打ち切られ、残りは次回に持ち越す（キーは不要）。
+      - name: Import games
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run import:games
+
+      # 並び替え用の人気（ゲーム記事の年間閲覧数）。未キャッシュのタイトルだけ解決する。
+      - name: Rank games
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run rank:games
+
       - name: Aggregate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate
@@ -59,7 +71,7 @@ jobs:
         run: |
           git config user.name "data-bot"
           git config user.email "actions@github.com"
-          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json
+          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json src/data/games.json src/data/steam.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh birthday data"
             git push
