@@ -118,10 +118,42 @@ export function splitCells(row: string): string[] {
   return cells;
 }
 
-/** セル先頭の HTML 属性（style=… align=… |）を落とす。`{{ }}` や `[[ ]]` は属性ではない。 */
+/** セル先頭の HTML 属性（style=… colspan=… |）を落とす。`{{ }}` や `[[ ]]` は属性ではない。 */
 function stripCellAttrs(cell: string): string {
   const m = /^([^|[{\n]*?=[^|[{\n]*?)\|(?!\|)/.exec(cell);
   return m ? cell.slice(m[0].length) : cell;
+}
+
+/** セル自身の colspan（データ行にも付く。Nintendo Switch 2 は日本/北米/欧州が同日なら colspan="3"）。 */
+function cellSpan(cell: string): number {
+  const attrs = /^([^|[{\n]*?=[^|[{\n]*?)\|(?!\|)/.exec(cell);
+  if (!attrs) return 1;
+  const m = /colspan\s*=\s*"?(\d+)"?/i.exec(attrs[1]);
+  return m ? Math.max(1, Number(m[1])) : 1;
+}
+
+/**
+ * 「属性|日付 |タイトル」のように `||` でなく `|` 1 本で次の列に移っている行を割る
+ * （Nintendo Switch 2 の一覧に混在する。左が日付、右がタイトル）。
+ */
+function splitStrayPipe(cell: string): { left: string; right: string } | null {
+  const body = stripCellAttrs(cell);
+  let link = 0;
+  let tpl = 0;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    const n = body[i + 1];
+    if (c === "[" && n === "[") { link++; i++; continue; }
+    if (c === "]" && n === "]") { if (link > 0) link--; i++; continue; }
+    if (c === "{" && n === "{") { tpl++; i++; continue; }
+    if (c === "}" && n === "}") { if (tpl > 0) tpl--; i++; continue; }
+    if (c === "|" && link === 0 && tpl === 0) {
+      const left = body.slice(0, i).trim();
+      const right = body.slice(i + 1).trim();
+      return left && right ? { left, right } : null;
+    }
+  }
+  return null;
 }
 
 /** {{0}}（幅そろえ）・span・太字などを落として日付判定できる形にする。 */
@@ -192,6 +224,8 @@ export function parseTitleCell(cell: string): { name: string; title?: string } |
     return name ? { name } : null;
   }
   const name = cleanWikitext(head).replace(/\*+$/, "").trim();
+  // 表の記号列（●■○△）を掴んでしまったときの保険。ゲーム名にはなり得ない。
+  if (/^[●■○△▲▽◆◇☆★–—-]+$/.test(name)) return null;
   return name ? { name } : null;
 }
 
@@ -287,8 +321,27 @@ function parseTable(table: string, sectionYear: number | null, out: RawGame[]): 
     const body = chunk.replace(/^[^\n]*\n/, "\n"); // |- 行に付いた属性を捨てる
     if (HEADER_LINE.test(body.trim())) continue;
     const cells = splitCells(body);
-    const dateCell = cells[0];
-    const titleCell = cells[layout.titleIdx];
+    // 列位置は「セルの順番」ではなく **colspan を足した列番号** で決める。日本/北米/欧州が
+    // 同日のとき 1 セルに colspan="3" を付ける記事があり（Nintendo Switch 2）、
+    // 順番で数えるとタイトルではなく「パ」列（●■）を掴む。
+    let col = 0;
+    let dateCell: string | null = null;
+    let titleCell: string | null = null;
+    for (const cell of cells) {
+      if (col === 0) dateCell = cell;
+      else if (col >= layout.titleIdx && titleCell === null) titleCell = cell;
+      col += cellSpan(cell);
+      if (titleCell !== null) break;
+    }
+    // 同じ記事には「発売日セルとタイトルを `||` でなく `|` 1 本で区切った」行も混ざる。
+    // 属性を落としたあとに残る `|` の右側がタイトル。
+    if (dateCell != null) {
+      const stray = splitStrayPipe(dateCell);
+      if (stray) {
+        dateCell = stray.left;
+        titleCell = stray.right;
+      }
+    }
     if (dateCell == null || titleCell == null) continue;
 
     const date = parseDateCell(dateCell, sectionYear);

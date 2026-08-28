@@ -123,14 +123,44 @@ function readGameSeeds(): GameSeedRow[] {
   return rows;
 }
 
+/** 要求タイトル → リダイレクト解決後の実タイトル（state.pages 由来）。 */
+function canonTitles(seeds: GameSeedRow[], state: State): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const t of allGameTitles(seeds)) {
+    const canon = state.pages[t]?.title;
+    if (canon) map.set(t, canon);
+  }
+  return map;
+}
+
 /** ゲームの人気解決に使う jawiki 記事タイトル（ユニーク）。 */
 function allGameTitles(seeds: GameSeedRow[]): string[] {
   return [...new Set(seeds.map((g) => g.title).filter((t): t is string => Boolean(t)))];
 }
 
+const normGame = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[\s　]+/g, "");
+
 /** 同日同名をまとめるためのキー（記号と空白の揺れを吸収）。 */
 function gameKey(g: GameSeedRow): string {
-  return `${g.year}|${g.name.normalize("NFKC").toLowerCase().replace(/[\s　]+/g, "")}`;
+  return `${g.year}|${normGame(g.name)}`;
+}
+
+/**
+ * リンク先が「そのゲーム自身の記事」でないときの割引率。
+ * 一覧では『スロッターマニアV BLACK LAGOON』が [[BLACK LAGOON]] を指すように、原作アニメ・
+ * 漫画の記事へリンクしている行がある。素の閲覧数を使うと、原作が有名なだけのゲームが
+ * 『メタルギアソリッド3』や『ゼルダの伝説 ブレス オブ ザ ワイルド』の上に来てしまう。
+ *
+ * 判定は **リダイレクト解決後のタイトル** で行う——『ちびまる子ちゃん まる子絵日記ワールド』は
+ * 記事名としては一致するが実体は [[ちびまる子ちゃん]] へのリダイレクトで、原作の閲覧数を借りている。
+ */
+const BORROWED_FAME = 0.15;
+
+function gameFameOf(seed: GameSeedRow, fame: Map<string, number>, canon: Map<string, string>): number {
+  if (!seed.title) return 0;
+  const raw = fame.get(seed.title) ?? 0;
+  const article = canon.get(seed.title) ?? seed.title;
+  return normGame(article) === normGame(seed.name) ? raw : raw * BORROWED_FAME;
 }
 
 /**
@@ -139,7 +169,7 @@ function gameKey(g: GameSeedRow): string {
  * （『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。
  * 並びは人物・キャラと同じ規範で 人気(閲覧数)降順 → 年の新しい順 → 名前。
  */
-function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>): Map<string, Game[]> {
+function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>, canon: Map<string, string>): Map<string, Game[]> {
   const byDay = new Map<string, Map<string, { seed: GameSeedRow; platforms: string[] }>>();
   for (const g of seeds) {
     if (!g.name || !g.year || !g.month || !g.day) continue;
@@ -162,7 +192,7 @@ function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>): Map<stri
   for (const [key, day] of byDay) {
     // 人気(閲覧数)降順 → 年の新しい順 → 名前。1日 最大数百件で初期表示は先頭30件なので並びが効く。
     const ranked = [...day.values()]
-      .map(({ seed, platforms }) => ({ seed, platforms, fame: fame.get(seed.title ?? "") ?? 0 }))
+      .map(({ seed, platforms }) => ({ seed, platforms, fame: gameFameOf(seed, fame, canon) }))
       .sort((a, b) => {
         if (b.fame !== a.fame) return b.fame - a.fame;
         if (b.seed.year !== a.seed.year) return b.seed.year - a.seed.year;
@@ -469,7 +499,7 @@ async function run(): Promise<void> {
   if (process.env.GAMES_ONLY) {
     const seeds = readGameSeeds();
     const gameFame = await resolveWorkFame(allGameTitles(seeds), state, true); // キャッシュ済みの人気だけ使う
-    const gameMap = buildGameMap(seeds, gameFame);
+    const gameMap = buildGameMap(seeds, gameFame, canonTitles(seeds, state));
     let updated = 0;
     let missing = 0;
     for (const { month, day } of selectDays()) {
@@ -522,7 +552,7 @@ async function run(): Promise<void> {
   // ゲームも同じく取込済み JSON を読むだけ。並び替え用の人気はキャラの作品と同じ経路・同じキャッシュ。
   const gameSeeds = readGameSeeds();
   const gameFame = await resolveWorkFame(allGameTitles(gameSeeds), state);
-  const gameMap = buildGameMap(gameSeeds, gameFame);
+  const gameMap = buildGameMap(gameSeeds, gameFame, canonTitles(gameSeeds, state));
   console.log(`[aggregate] ゲーム: ${gameSeeds.length}本 / 人気解決 ${[...gameFame.values()].filter((v) => v > 0).length}件`);
 
   const single = days.length === 1;

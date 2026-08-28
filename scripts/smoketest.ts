@@ -633,6 +633,29 @@ function assert(cond: boolean, msg: string): void {
   const haishin = ["== 配信専用タイトル ==", '{| class="wikitable"', "!配信日 !! タイトル", "|-", "|2024年1月8日||[[ドラゴンシンカー]]", "|}"].join("\n");
   assert(parseGameList(haishin).length === 1, "「配信日」列の表も読む");
 
+  // データ行側に colspan が付く方言（Switch 2 は日本/北米/欧州が同日なら 1 セルに colspan="3"）。
+  // セルの「順番」で数えると記号列（●■）を掴むので、colspan を足した列番号で決める。
+  const dataColspan = [
+    "== タイトル一覧 ==",
+    "=== 2025年 ===",
+    '{| class="wikitable"',
+    '! colspan="3"|発売日 !! rowspan="2"|タイトル !! rowspan="2"|発売元 !! rowspan="2"|パ',
+    "|-",
+    "!日本 !! 北米 !! 欧州",
+    "|-",
+    '|style="text-align:center;"|1月8日||colspan="2" style="text-align:center;"|1月5日|| [[オレっ!トンバ|オレっ!トンバ SE]] ||Limited Run|| ○',
+    "|-",
+    '|colspan="3" style="text-align:center;"|6月5日|| [[マリオカート ワールド]] ||[[任天堂]]||●',
+    "|-",
+    '|colspan="3" style="text-align:center;"|6月6日 |[[Nintendo Switch 2 のひみつ展]]||[[任天堂]]||■',
+    "|}",
+  ].join("\n");
+  const dc = parseGameList(dataColspan);
+  assert(dc.length === 3, `データ行 colspan は 3 行（実際: ${dc.length}）`);
+  assert(dc[0].name === "オレっ!トンバ SE", "北米/欧州が colspan=2 でもタイトル列を外さない");
+  assert(dc[1].name === "マリオカート ワールド" && dc[1].month === 6 && dc[1].day === 5, "日付セルが colspan=3");
+  assert(dc[2].name === "Nintendo Switch 2 のひみつ展", "`||` でなく `|` 1 本で区切られた行も割る");
+
   assert(yearOfArticle("Nintendo Switchのゲームタイトル一覧 (2022年)") === 2022, "記事名から年");
   assert(yearOfArticle("PlayStation 4のゲームタイトル一覧 (2014年-2015年)") === null, "年の範囲は補わない（節見出しで決める）");
   assert(yearOfArticle("ファミリーコンピュータのゲームタイトル一覧") === null, "年が無い記事名");
@@ -652,6 +675,7 @@ function assert(cond: boolean, msg: string): void {
   assert(parseTitleCell("[[X]]<br />English Title")?.name === "X", "<br /> 以降の英題は捨てる");
   assert(parseTitleCell('<span style="display:none">ふ02</span>[[THE 功夫]]')?.name === "THE 功夫", "ソートキーの span を落とす");
   assert(parseTitleCell("[[RESISTANCE]]*")?.name === "RESISTANCE", "末尾の注記アスタリスクを落とす");
+  assert(parseTitleCell("●") === null && parseTitleCell("■") === null, "記号だけの列はタイトルにしない");
   console.log("[games/jawiki] OK");
 }
 

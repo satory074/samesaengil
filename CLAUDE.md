@@ -38,7 +38,9 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
 npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記念日。他と違い週次 CI でも実行、~4分）
 npm run import:games           # 機種別「ゲームタイトル一覧」＋Steam → src/data/games.json（週次 CI でも実行、~4分）
 npx tsx scripts/importGames.ts PS2 ファミコン  # 指定機種だけ（デバッグ。ファイルは書かない）
-GAMES_SKIP_STEAM=1 npm run import:games        # Wikipedia の機種別一覧だけ（Steam 段をスキップ）
+GAMES_SKIP_STEAM=1 npm run import:games        # Wikipedia の機種別一覧だけ（Steam 段は前回値を維持）
+GAMES_STEAM_ONLY=1 npm run import:games        # Steam 段だけ（送信上限で持ち越した候補を埋める高速パス）
+RANK_GAMES_MAX=4000 npm run rank:games         # 人気解決を刻む（1実行あたりの上限。残りは次回）
 ```
 
 `npm run aggregate` / `aggregate:years` / `rank:works` は実 API（日本語版Wikipedia・Wikidata・Spotify）を叩く。レート制限で一部が取りこぼれることがある（下記「取りこぼし」参照）。**顔写真の補完は認証不要（Wikimedia のみ）＝キーは要らない。**
@@ -67,14 +69,16 @@ GAMES_SKIP_STEAM=1 npm run import:games        # Wikipedia の機種別一覧だ
 - **協会認定記念日（kinenbi.gr.jp＝日本記念日協会）** `sources/kinenbiDay.ts`＋取込 `importKinenbi.ts` → コミット済み `src/data/kinenbi.json`（fanweb と同じ「取込→静的 JSON」パターンだが、**新規認定を拾うため週次 CI でも実行**される）。日付検索はトップへの POST（`MD=1&M=月&D=日`）で、当日分は `today_kinenbibox01`（認定）→`box02`（その他=元日など伝統日）→`box03`（周年）のマーカー間にある——**box01 の外（新着サイドバー等）にも同形式リンクがあるので必ずスライスしてから抽出**（`parseKinenbiDay` は純関数＝smoketest 対象）。box02 は毎ページ共通の年間指定ノイズ（`2026 お風呂の年`）を `^\d{4}\s` で除外。名前の `＜４月を除く毎月１９日＞` 注記は `splitKinenbiName` で desc に分離。取込は取得0件の日を**前回値で維持**（週次実行でサイト障害時に空上書きしない）。`DayData` では Wikipedia 由来の `anniversaries` と**別キー `kinenbi`** で持ち、表示時に `src/lib/anniv.ts` の `mergeAnniversaries` でマージ（Wikipedia 先頭・正規化ラベルで重複排除、重複は kinenbi の由来ページ URL に昇格）——焼き込むと `KINENBI_ONLY` 再実行の冪等性が失われるため。**由来の本文は協会の著作文なのでコピーせず**、チップから由来ページ（`yurai.php`）へ新しいタブでリンクする（フッタに出典明記）。取込後の反映は `KINENBI_ONLY=1 npm run aggregate`（数秒）。
 - **キャラ**: 2 つの静的シードを当日分だけマージ（実行時 API なし）。(a) 手描きの curated `src/data/characters.json`（色つき）、(b) **bd.fan-web.jp 由来のバルク** `src/data/characters-fanweb.json`（全366日 ~7.5万件、名前＋作品名のみ）。マージは `aggregate.ts` の `buildCharacterMap`＝日ごと `name` で重複排除（curated 先勝ち）、fanweb 分の色は `colorForWork(work)`（作品名ハッシュ→固定 S/L の HSL）で自動導出。
 - **キャラの並び（`rankCharacters`）**: **作品の閲覧数(人気)降順 → 作品名（同作品を隣接）→ 作品内は seed 順**（`Array#sort` は安定）。作品の人気は**人物の fame と同じ仕組み**——作品名を jawiki のタイトルとみなして `resolveWorkFame()`（`scripts/lib/state.ts`）が pageMeta＋pageviews で解決し、同じ `state.pages`/`state.views` にキャッシュする（記事が無い作品は 0＝後ろへ）。初期表示は先頭40件なので、ここが**実質ランダムだと有名作品が埋もれる**（旧: fanweb のスクレイプ順そのまま）。
-- **発売されたゲームソフト** `sources/jawikiGameList.ts`（純関数パーサ）＋`sources/gameSources.ts`（機種→記事名）＋`sources/steamStore.ts`（PC）＋取込 `importGames.ts` → コミット済み `src/data/games.json`（~4.6万本・6.4MB）。kinenbi と同じ「取込→静的 JSON→aggregate は読むだけ」パターン（**新作を拾うため週次 CI でも実行**）。
+- **発売されたゲームソフト** `sources/jawikiGameList.ts`（純関数パーサ）＋`sources/gameSources.ts`（機種→記事名）＋`sources/steamStore.ts`（PC）＋取込 `importGames.ts` → コミット済み `src/data/games.json`（4.6万本・6.2MB。うち Steam 271本）。kinenbi と同じ「取込→静的 JSON→aggregate は読むだけ」パターン（**新作を拾うため週次 CI でも実行**）。
   - **ソースは日本語版Wikipedia の機種別「〈機種〉のゲームタイトル一覧」31機種**（バーチャルボーイのみ記事が無い）。PS/PS2/PS4/PS5/DS/Switch は年別サブ記事に分割されているが、**サブ記事名はハードコードせず** `list=allpages&apprefix=<親記事>&apfilterredir=nonredirects` で実行時に列挙する（年が進んで記事が増えても自動で追随する）。合計およそ60記事。
   - **表の方言は 2 つだけ**で、どちらも「発売日 → タイトル → 発売元」の並び。(A) 日付セルが絶対日付（`2001年3月21日` / `{{dts|1988|10|29}}`。FC・SFC・GB・SS・PSP・3DS など）、(B) 日付セルが月日だけで年は節見出し `=== 2008年 ===` か記事名の `(2018年)` から（PS・PS2・PS4・PS5・DS・Switch など）。
   - **列位置は決め打ちしない**——ヘッダの「発売日」セルの `colspan` からタイトル列を数える。海外版の発売日を併記する機種があり（メガドライブは 日本/北米/欧州/その他 の 4 列）、タイトル列の位置が機種ごとに違う。**日本の発売日は必ず先頭列**。
   - **「発売日が先頭列でない表は読まない」が売上ランキング表を弾く唯一の確実な手**（`! 順位 !! タイトル !! 発売日` が同じ節に同居する）。節の拒否リスト（`発売されなかった`/`非売品`/`非ライセンス` など）は**表を直接含む最も深い見出しだけ**に当てる——PS Vita の年別記事は「発売ソフトの形態・変遷 > 発売されたタイトル」と入れ子で、親まで見ると本体の表ごと落ちる（実際に落ちていた）。
   - `{{dts|1993|1|14|}}`（末尾に空パラメータ）・`{{0}}1月10日`・`<span id="1990"></span>`・`style="…"|`・`{{ubl|[[和名]]|English}}`・`{{仮リンク}}`・`<ref>` の複数行——実データで確認した表記ゆれを全部吸収する（`splitCells` は `[[ ]]`/`{{ }}` の内側の `|` を数えない）。`{{Unreleased}}`（国内未発売）と年月までしか分からない行は捨てる。**発売予定（未来日）も載せない**。
   - **Steam（PC）だけは Steam 公式ストア API**（キー不要・日本語対応）。日本語版Wikipedia に Steam のタイトル一覧記事が無いため。候補は `Category:YYYY年のコンピュータゲーム`（2003年〜）のうち機種別一覧で拾えなかった記事名で、`storesearch`→`appdetails?cc=jp&l=japanese` の `release_date.date`（`2022年2月24日`）を引く。設計は Spotify 段の丸写し: **結果側で名前照合**・`src/data/steam.json` に正/負キャッシュ・**1実行あたりの送信上限（既定300）で次回に持ち越し**・429 でサーキットブレーカー。初回は一部しか埋まらず、週次 cron で数回かけて埋まる。
-  - **並びは 人気(閲覧数)降順 → 年の新しい順 → 名前**。人気はキャラの作品と**まったく同じ経路・同じキャッシュ**（`resolveWorkFame` / `state.pages` / `state.views`）で、一覧が `[[記事名]]` を直接持つので**タイトル照合が要らない＝精度が高い**。1日あたり最大数百本で初期表示は先頭30本なので、ここが実質ランダムだと有名作が埋もれる。
+  - **並びは 人気(閲覧数)降順 → 年の新しい順 → 名前**。人気はキャラの作品と**まったく同じ経路・同じキャッシュ**（`resolveWorkFame` / `state.pages` / `state.views`）で、一覧が `[[記事名]]` を直接持つので**タイトル照合が要らない＝精度が高い**。1日あたり最大341本で初期表示は先頭30本なので、ここが実質ランダムだと有名作が埋もれる。
+  - **ただし素の閲覧数をそのまま使ってはいけない**——一覧の 3 割は原作アニメ・漫画の記事へリンクしている（『スロッターマニアV BLACK LAGOON』→ `[[BLACK LAGOON]]`）。そのままだと原作が有名なだけのゲームが『ゼルダの伝説 ブレス オブ ザ ワイルド』の上に来る。**リダイレクト解決後の記事名がゲーム名と完全一致する行だけを満点**にし、それ以外は `BORROWED_FAME`（0.15）倍する（`aggregate.ts` の `gameFameOf`）。判定に**リダイレクト解決後**のタイトルを使うのが要で、『ちびまる子ちゃん まる子絵日記ワールド』は記事名としては一致するが実体は `[[ちびまる子ちゃん]]` へのリダイレクトで原作の 52万閲覧を借りている。
+  - **人気解決は 2.7万タイトルで初回 40分前後**かかる。`rank:games` は未解決ぶんだけをチャンク（500件）に割り、**チャンクごとに `state.json` へ途中保存**する（`RANK_GAMES_MAX` で 1 実行の上限も指定できる）。長時間実行が止められる環境でも進捗が消えない。
   - **同じ日に同名が複数機種で出ていれば 1 件にまとめて機種名を連結する**（`aggregate.ts` の `buildGameMap`。『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。`games.json` 側は「1機種1行」で持つ——そうしておくと取込で**機種ごとに前回値フォールバック**できる。
   - 取込後の反映は `npm run rank:games`（新しいタイトルの閲覧数を state に足す）→ `GAMES_ONLY=1 npm run aggregate`（数秒）。`rank:games` を先に回すのは `CHARS_ONLY` と同じ理由。
 - **占い/暦は生成しない**。年・月日から計算できるので**クライアント側**（`src/lib/almanac.ts`）で出す。

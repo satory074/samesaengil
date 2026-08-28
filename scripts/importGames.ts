@@ -3,7 +3,9 @@
 //
 //   npm run import:games                    … 全機種＋Steam を取得して上書き
 //   npx tsx scripts/importGames.ts ファミコン PS2   … 指定機種だけ（デバッグ。ファイルは書かない）
-//   GAMES_SKIP_STEAM=1 npm run import:games … Wikipedia の機種別一覧だけ
+//   GAMES_SKIP_STEAM=1 npm run import:games … Wikipedia の機種別一覧だけ（Steam 段は前回値を維持）
+//   GAMES_STEAM_ONLY=1 npm run import:games … Steam 段だけ（Wikipedia は前回値を維持）。上限で
+//                                              持ち越した候補を埋めるための高速パス
 //   STEAM_MAX_REQUESTS=1200 npm run import:games … Steam の 1 実行あたり送信上限（既定 600）
 //
 // 出力は「1 プラットフォーム 1 行」の素の配列。同日同名の複数機種同時発売をまとめるのは
@@ -189,9 +191,20 @@ async function run(): Promise<void> {
   const { list, debug } = selectPlatforms();
   const prev = readPrevByPlatform();
   const today = new Date();
-  console.log(`[games] ${list.length}機種ぶんを取得します${debug ? "（デバッグ実行: ファイルは書きません）" : ""}…`);
+  const steamOnly = Boolean(process.env.GAMES_STEAM_ONLY);
 
-  const { rows, empties, kept } = await collectFromWikipedia(list, prev, today);
+  // Steam 段だけ回す高速パス（Wikipedia は前回値をそのまま使う）。ストアの送信上限で
+  // 持ち越した候補を数回に分けて埋めるための経路（KINENBI_ONLY と同じ発想）。
+  let rows: GameSeed[] = [];
+  let empties: string[] = [];
+  let kept: string[] = [];
+  if (steamOnly) {
+    for (const [platform, list] of prev) if (platform !== STEAM_LABEL) rows.push(...list);
+    console.log(`[games] GAMES_STEAM_ONLY: Wikipedia 由来の ${rows.length}本は前回値をそのまま使います…`);
+  } else {
+    console.log(`[games] ${list.length}機種ぶんを取得します${debug ? "（デバッグ実行: ファイルは書きません）" : ""}…`);
+    ({ rows, empties, kept } = await collectFromWikipedia(list, prev, today));
+  }
 
   // Steam 候補から除く名前（機種別一覧に既にあるもの）。
   const covered = new Set(rows.flatMap((r) => [r.name, r.title ?? ""]).filter(Boolean));
