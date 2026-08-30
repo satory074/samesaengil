@@ -430,7 +430,7 @@ function charChip(c: Character, withWork = true): string {
   const img = c.image
     ? `<img class="cimg" src="${esc(c.image)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
     : "";
-  const dot = `<span class="dot${img ? " has-img" : ""}" style="background:${esc(c.color ?? "#8b5cf6")}">${img}</span>`;
+  const dot = `<span class="dot${img ? " has-img" : ""}" style="background:${esc(c.color ?? "#d6336c")}">${img}</span>`;
   const work = withWork ? `<span class="cwork">${esc(c.work)}</span>` : "";
   const inner = `${dot}<span class="cname">${esc(c.name)}</span>${work}`;
   return c.url

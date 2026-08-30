@@ -2,83 +2,44 @@
 
 /* =========================================================================
    samesaengil — 「誕生日を知る」 デザインシステム
-   若者向け・お祝い・ポップ。明るい配色＋紙吹雪アクセント。
+   クリーン＆すっきり。ライト固定（ダークテーマなし）・グラデーション不使用・
+   ソリッドカラーのみ。オフホワイトの地に白いカード、アクセントはローズ1色。
    Tailwind v4 はリセット用途で読み込み、実装は CSS 変数＋手書きクラス中心。
    ========================================================================= */
 
 :root {
-  /* ライト/ダーク両対応を宣言。これによりブラウザの自動ダークモードは
-     「サイトが自前でダーク対応している」と判断し、勝手な反転（solid だけ暗転）を行わず、
-     下の prefers-color-scheme: dark で定義した正規のダークテーマを使う。 */
-  color-scheme: light dark;
+  /* ライト固定。light のみを宣言することでブラウザの自動ダーク化（solid だけ暗転）を防ぐ。 */
+  color-scheme: light;
 
-  /* --- 背景・サーフェス --- */
-  --bg: #fff7fb;
-  --bg-grad-1: #ffe6f2;
-  --bg-grad-2: #eae6ff;
+  /* --- 背景・サーフェス（地=オフホワイト、カード=白 の2段構成） --- */
+  --bg: #faf9f7;
   --surface: #ffffff;
-  --surface-2: #fdf1f7;
-  --border: #f0d8e6;
-  --border-soft: #f5e6ef;
+  --surface-2: #f4f2ef;
+  --border: #e5e1db;
+  --border-soft: #eeebe6;
 
-  /* --- テキスト --- */
-  --text: #2c2435;
-  --text-muted: #6b6175;
-  --text-dim: #9a8fa6;
+  /* --- テキスト（ニュートラルグレー3段。すべて白地で WCAG AA 4.5:1 以上） --- */
+  --text: #212529;
+  --text-muted: #495057;
+  --text-dim: #6c757d;
 
-  /* --- アクセント（パーティーカラー） --- */
-  --pink: #ff4f9a;
-  --pink-soft: #ffd6e7;
-  --purple: #8b5cf6;
-  --purple-soft: #e4d9ff;
-  --blue: #38bdf8;
-  --amber: #ffb627;
-  --green: #34d399;
+  /* --- アクセント（ローズ1色に集約。白地で 4.6:1 以上） --- */
+  --accent: #d6336c;
+  --accent-strong: #c2255c; /* リンク・hover（6.0:1） */
+  --accent-soft: #fff0f6; /* ⭐ハイライト行の背景 */
+  --accent-border: #fcc2d7; /* ハイライトの罫線・マーカー */
+  --green: #2f9e44; /* コピー成功 */
   --ink-on-accent: #ffffff;
-
-  /* グラデーション */
-  --accent-grad: linear-gradient(135deg, #ff4f9a 0%, #8b5cf6 100%);
-  --accent-grad-soft: linear-gradient(135deg, #ffe0ee 0%, #e9e0ff 100%);
 
   /* 形 */
   --radius: 18px;
   --radius-sm: 12px;
   --radius-lg: 28px;
-  --shadow: 0 10px 30px -12px rgba(139, 92, 246, 0.35);
-  --shadow-sm: 0 4px 14px -6px rgba(255, 79, 154, 0.3);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06); /* フォームカード専用の控えめな影 */
 
   --maxw: 720px;
   --font: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", system-ui,
     -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-
-/* ダークテーマ（OS/ブラウザがダークのとき）。トークンだけ差し替え、配色は同じ世界観で。 */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141019;
-    --bg-grad-1: #2a1626;
-    --bg-grad-2: #1c1830;
-    --surface: #1d1727;
-    --surface-2: #241d33;
-    --border: #392f49;
-    --border-soft: #2c2438;
-
-    --text: #f1e9f7;
-    --text-muted: #b9aecb;
-    --text-dim: #8a7e9d;
-
-    --pink-soft: rgba(255, 79, 154, 0.2);
-    --purple: #c4b5fd;
-    --purple-soft: rgba(139, 92, 246, 0.24);
-
-    --accent-grad-soft: linear-gradient(135deg, #2c2140 0%, #241d34 100%);
-    --shadow: 0 12px 34px -14px rgba(0, 0, 0, 0.7);
-    --shadow-sm: 0 6px 18px -8px rgba(0, 0, 0, 0.6);
-  }
-  /* ダーク時は誕生石/世代など「サブ説明」の紫を読みやすく */
-  .fact .k {
-    color: var(--purple);
-  }
 }
 
 * {
@@ -93,17 +54,13 @@ body {
   margin: 0;
   font-family: var(--font);
   color: var(--text);
-  background:
-    radial-gradient(1200px 600px at 80% -10%, var(--bg-grad-1), transparent 60%),
-    radial-gradient(900px 500px at -10% 10%, var(--bg-grad-2), transparent 55%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   line-height: 1.7;
   min-height: 100vh;
 }
 
 a {
-  color: var(--purple);
+  color: var(--accent-strong);
   text-decoration: none;
 }
 a:hover {
@@ -125,13 +82,10 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: clamp(28px, 7vw, 44px);
-  font-weight: 900;
+  font-size: clamp(26px, 6vw, 36px);
+  font-weight: 800;
   letter-spacing: -0.02em;
-  background: var(--accent-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
   line-height: 1.1;
 }
 .site-header .tagline {
@@ -146,19 +100,19 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 22px 20px;
-  margin: 18px auto 8px;
+  padding: 24px 20px;
+  margin: 16px auto 8px;
 }
 .bday-form .label {
   display: block;
   text-align: center;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 15px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .bday-form .row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   justify-content: center;
   align-items: flex-end;
   flex-wrap: wrap;
@@ -170,44 +124,44 @@ a:hover {
   gap: 4px;
 }
 .bday-form .field span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
-  font-weight: 700;
+  font-weight: 600;
 }
 .bday-form select {
   appearance: none;
   font-family: inherit;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text);
   background: var(--surface-2);
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
   min-width: 78px;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .bday-form select:focus {
   outline: none;
-  border-color: var(--pink);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .btn {
   font-family: inherit;
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--ink-on-accent);
-  background: var(--accent-grad);
+  background: var(--accent);
   border: none;
   border-radius: 999px;
-  padding: 12px 26px;
+  padding: 12px 28px;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.12s ease, filter 0.12s ease;
+  transition: background 0.12s ease, transform 0.12s ease;
 }
 .btn:hover {
-  filter: brightness(1.05);
+  background: var(--accent-strong);
   transform: translateY(-1px);
 }
 .btn:active {
@@ -221,19 +175,21 @@ a:hover {
 /* ---- 結果ヘッダ（◯月◯日生まれ） ---- */
 .result-head {
   text-align: center;
-  margin: 28px 0 6px;
+  margin: 32px 0 8px;
 }
 .result-head .date-big {
   font-size: clamp(26px, 7vw, 38px);
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: -0.01em;
 }
+/* 日付だけアクセント色＋マーカー風下線。ページ内で唯一の「大きな色文字」。 */
 .result-head .date-big em {
   font-style: normal;
-  background: var(--accent-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 6px;
+  text-decoration-color: var(--accent-border);
+  text-underline-offset: 6px;
 }
 
 /* ---- セクション（details。初期は ✨プロフィール/🔮小ネタ だけ開・他は閉） ---- */
@@ -241,8 +197,7 @@ a:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  padding: 16px 18px;
+  padding: 16px;
   margin: 16px 0;
 }
 .section[open] {
@@ -259,14 +214,14 @@ a:hover {
 }
 .section summary h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 17px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .section summary h2 .emoji {
-  font-size: 22px;
+  font-size: 20px;
 }
 .section .chev {
   margin-left: auto;
@@ -290,7 +245,7 @@ a:hover {
 }
 .section .count {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-dim);
   margin-left: auto;
 }
@@ -304,22 +259,23 @@ a:hover {
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 .fact {
-  background: var(--accent-grad-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
 }
 .fact .k {
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--purple);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
   letter-spacing: 0.02em;
 }
 .fact .v {
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 17px;
+  font-weight: 700;
   margin-top: 2px;
 }
 .fact .sub {
@@ -337,17 +293,17 @@ a:hover {
 .pcard {
   display: flex;
   flex-direction: column;
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform 0.12s ease, border-color 0.12s ease;
 }
 .pcard:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-sm);
+  transform: translateY(-2px);
+  border-color: var(--accent-border);
   text-decoration: none;
 }
 /* イニシャルを背面に置き、写真があれば上から被せる。
@@ -355,17 +311,14 @@ a:hover {
 
    写真なしは例外ではなく一覧の約4割（日本語版 Wikipedia は存命の日本人の自由ライセンス写真が
    乏しい）。そこで肩書きのカテゴリ（render.ts の data-cat）ごとに色相を変え、
-   「読み込みに失敗した灰色」ではなく「分類された色チップ」として意図的に見せる。 */
+   「読み込みに失敗した灰色」ではなく「分類された色チップ」として意図的に見せる。
+   淡いパステル地＋濃色イニシャルのソリッド（グラデーション不使用）。 */
 .pcard .thumb {
-  --thumb-hue: 322; /* 既定はブランドのピンク寄り。data-cat で上書きする */
+  --thumb-hue: 322; /* 既定はブランドのローズ寄り。data-cat で上書きする */
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: linear-gradient(
-    135deg,
-    hsl(var(--thumb-hue) 85% 62%) 0%,
-    hsl(calc(var(--thumb-hue) + 38) 70% 55%) 100%
-  );
+  background: hsl(var(--thumb-hue) 55% 93%);
   overflow: hidden;
 }
 .pcard .thumb[data-cat="ent"] {
@@ -393,9 +346,8 @@ a:hover {
   /* 2 文字（「今田」）が既定。カードは最小 150px 幅なので 30px なら漢字2字が余裕で収まる。 */
   font-size: 30px;
   letter-spacing: 0.02em;
-  font-weight: 900;
-  color: var(--ink-on-accent);
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  font-weight: 700;
+  color: hsl(var(--thumb-hue) 45% 34%);
 }
 .pcard .thumb .photo {
   position: absolute;
@@ -410,21 +362,21 @@ a:hover {
   padding: 8px 10px 10px;
 }
 .pcard .name {
-  font-weight: 800;
+  font-weight: 600;
   font-size: 14px;
   line-height: 1.35;
 }
 .pcard .meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 3px;
 }
 .pcard .ja-flag {
   display: inline-block;
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--pink);
-  background: var(--pink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
   border-radius: 6px;
   padding: 1px 6px;
   margin-top: 6px;
@@ -434,12 +386,12 @@ a:hover {
   width: 100%;
   margin-top: 12px;
   font-family: inherit;
-  font-weight: 800;
+  font-weight: 600;
   font-size: 13px;
   border-radius: 999px;
   padding: 10px 18px;
   cursor: pointer;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   transition: background 0.12s ease, transform 0.12s ease;
@@ -462,9 +414,9 @@ a:hover {
 }
 /* 作品ごとのグループ見出し（一覧は作品の人気順ソートで同一作品が隣接している）。 */
 .char-work-head {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
 }
 .char-work-head:first-child {
@@ -474,15 +426,15 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 9px 12px;
+  padding: 8px 12px;
   text-decoration: none;
   color: inherit;
 }
 .chip:hover {
-  border-color: var(--purple);
+  border-color: var(--accent-border);
   text-decoration: none;
 }
 .chip .dot {
@@ -509,11 +461,11 @@ a:hover {
   border-radius: 8px;
 }
 .chip .cname {
-  font-weight: 800;
+  font-weight: 600;
   font-size: 14px;
 }
 .chip .cwork {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-left: auto;
   white-space: nowrap;
@@ -527,14 +479,16 @@ a:hover {
 }
 .anniv {
   font-size: 13px;
-  font-weight: 700;
-  background: var(--purple-soft);
-  color: var(--purple);
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-muted);
   border-radius: 999px;
   padding: 5px 12px;
 }
-/* リンク化されたチップ（日本記念日協会の由来ページ）。見た目は span と揃え、リンク可はホバー下線だけで示す。 */
+/* リンク化されたチップ（日本記念日協会の由来ページ）。アクセント色でタップ可能を示す。 */
 a.anniv {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
   text-decoration: none;
 }
 a.anniv:hover {
@@ -547,33 +501,34 @@ a.anniv:hover {
 }
 .events li {
   font-size: 13px;
-  padding: 5px 0;
-  border-top: 1px dashed var(--border);
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
   display: flex;
   gap: 10px;
 }
 .events li .yr {
-  font-weight: 800;
-  color: var(--pink);
+  font-weight: 600;
+  color: var(--text-dim);
   flex: none;
   min-width: 46px;
 }
 
 /* ---- 生まれた年 ---- */
 .song {
-  background: var(--accent-grad-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
-  padding: 14px 16px;
+  padding: 16px;
   text-align: center;
 }
 .song-k {
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--purple);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
 }
 .song-title {
   font-size: 20px;
-  font-weight: 900;
+  font-weight: 700;
   margin-top: 4px;
   line-height: 1.3;
 }
@@ -594,14 +549,15 @@ a.anniv:hover {
   margin-top: 10px;
   padding: 7px 16px;
   border-radius: 999px;
-  background: #1db954; /* Spotify グリーン */
-  color: #fff;
+  background: #1db954; /* Spotify グリーン。白文字はコントラスト不足なので濃緑文字（4.8:1） */
+  color: #0a3d1f;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: none;
 }
 .song-spotify:hover {
   background: #1ed760;
+  color: #0a3d1f;
 }
 .song-cover {
   display: block;
@@ -609,8 +565,8 @@ a.anniv:hover {
   height: 112px;
   object-fit: cover;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
   margin: 8px auto 4px;
-  box-shadow: var(--shadow-sm);
 }
 
 /* その年の週間1位ぜんぶ（ネスト details） */
@@ -619,8 +575,8 @@ a.anniv:hover {
 }
 .chart-list > summary {
   font-size: 13px;
-  font-weight: 800;
-  color: var(--purple);
+  font-weight: 700;
+  color: var(--accent-strong);
   cursor: pointer;
   list-style: none;
 }
@@ -638,11 +594,11 @@ a.anniv:hover {
   gap: 10px;
   font-size: 13px;
   padding: 6px 4px;
-  border-top: 1px dashed var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 .chart-weeks .cw-date {
-  font-weight: 800;
-  color: var(--pink);
+  font-weight: 600;
+  color: var(--text-dim);
   flex: none;
   min-width: 46px;
 }
@@ -653,7 +609,8 @@ a.anniv:hover {
   height: 32px;
   flex: none;
   border-radius: 8px;
-  background: var(--accent-grad-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
 }
 .chart-weeks .cw-art::before {
   content: "🎵";
@@ -679,21 +636,21 @@ a.anniv:hover {
   line-height: 1.4;
 }
 .chart-weeks .cw-title {
-  font-weight: 800;
+  font-weight: 600;
 }
 .chart-weeks .cw-title a {
   color: inherit;
 }
 .chart-weeks .cw-artist {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .chart-weeks .cw-badge {
   flex: none;
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--pink);
-  background: var(--pink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
   border-radius: 6px;
   padding: 1px 6px;
 }
@@ -702,10 +659,12 @@ a.anniv:hover {
   flex: none;
   text-decoration: none;
 }
+/* 誕生週はこの一覧の主役。アクセントの淡地＋左ボーダーで立てる。 */
 .chart-weeks .cw.is-birth {
-  background: var(--pink-soft);
+  background: var(--accent-soft);
   border-radius: var(--radius-sm);
   border-top-color: transparent;
+  border-left: 3px solid var(--accent);
   padding: 6px 8px;
 }
 .year-block {
@@ -714,7 +673,7 @@ a.anniv:hover {
 .year-block h3 {
   margin: 0;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
 }
 .year-events {
@@ -724,26 +683,26 @@ a.anniv:hover {
 }
 .year-events li {
   font-size: 13px;
-  padding: 5px 0;
-  border-top: 1px dashed var(--border);
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
   display: flex;
   gap: 10px;
 }
 .year-events li .yr {
-  font-weight: 800;
-  color: var(--pink);
+  font-weight: 600;
+  color: var(--text-dim);
   flex: none;
   min-width: 46px;
 }
 
 /* ---- 有名人セクション内のサブブロック（推し・全員一覧・動物） ---- */
 .oshi-block + .oshi-block {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 .oshi-block h3 {
   margin: 0 0 8px;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
 }
 
@@ -754,12 +713,12 @@ a.anniv:hover {
 .year-people-block h3 {
   margin: 0 0 8px;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
 }
 /* 生年月日まで一致した人は、このセクションの主役なので色で立てる。 */
 .year-people-block.exact h3 {
-  color: var(--pink);
+  color: var(--accent-strong);
 }
 .year-people-block .more-btn {
   margin-top: 10px;
@@ -772,12 +731,12 @@ a.anniv:hover {
 .game-block h3 {
   margin: 0 0 8px;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
 }
 /* 生まれた日ちょうどに出たソフトはこのセクションの主役なので色で立てる（同学年の ⭐ と同じ流儀）。 */
 .game-block.exact h3 {
-  color: var(--pink);
+  color: var(--accent-strong);
 }
 .game-list {
   list-style: none;
@@ -792,7 +751,7 @@ a.anniv:hover {
   gap: 10px;
   font-size: 13px;
   padding: 5px 4px;
-  border-top: 1px dashed var(--border);
+  border-top: 1px solid var(--border-soft);
   color: inherit;
   text-decoration: none;
 }
@@ -804,7 +763,8 @@ a.anniv:hover {
   height: 42px;
   flex: none;
   border-radius: 6px;
-  background: var(--accent-grad-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
   overflow: hidden;
 }
 .game-list .g-art::before {
@@ -825,28 +785,29 @@ a.anniv:hover {
 }
 .game-block.exact .game-list .grow > a,
 .game-block.exact .game-list .grow > span {
-  background: var(--pink-soft);
+  background: var(--accent-soft);
   border-radius: var(--radius-sm);
   border-top-color: transparent;
+  border-left: 3px solid var(--accent);
   padding: 6px 8px;
   margin-bottom: 4px;
 }
 .game-list .g-year {
   flex: none;
   min-width: 38px;
-  font-weight: 800;
-  color: var(--pink);
+  font-weight: 600;
+  color: var(--text-dim);
 }
 .game-list .g-name {
   min-width: 0;
-  font-weight: 700;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .game-list .g-plat {
   margin-left: auto;
   flex: none;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
   background: var(--surface-2);
   border: 1px solid var(--border-soft);
@@ -867,12 +828,12 @@ a.anniv:hover {
 }
 .share-btn {
   font-family: inherit;
-  font-weight: 800;
+  font-weight: 600;
   font-size: 14px;
   border-radius: 999px;
   padding: 10px 18px;
   cursor: pointer;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
 }
@@ -895,7 +856,7 @@ a.anniv:hover {
   font-size: 14px;
 }
 .error-msg {
-  color: var(--pink);
+  color: var(--accent-strong);
 }
 
 /* ---- フッタ ---- */

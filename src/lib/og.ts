@@ -11,8 +11,9 @@ import { Resvg } from "@resvg/resvg-js";
 
 const FONT = fs.readFileSync(path.join(process.cwd(), "src", "assets", "fonts", "NotoSansJP-Subset.ttf"));
 
-const PINK = "#ff4f9a";
-const PURPLE = "#8b5cf6";
+// globals.css の新パレット（ライト固定・ソリッドカラー）と同期させること。
+const ACCENT = "#d6336c";
+const ACCENT_STRONG = "#c2255c";
 
 /** satori は JSX でなくオブジェクトでも受ける（JSX 設定を増やさないためこちらを使う）。 */
 type Node = { type: string; props: Record<string, unknown> };
@@ -31,8 +32,7 @@ export async function renderOgCard(headline: string, sub: string): Promise<Array
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: "#1a1420",
-      backgroundImage: `linear-gradient(135deg, ${PINK} 0%, ${PURPLE} 100%)`,
+      backgroundColor: ACCENT,
       fontFamily: "NotoSansJP",
     },
     [
@@ -49,9 +49,9 @@ export async function renderOgCard(headline: string, sub: string): Promise<Array
           backgroundColor: "#ffffff",
         },
         [
-          el("div", { display: "flex", fontSize: 100, color: "#2c2435", letterSpacing: -2 }, headline),
-          el("div", { display: "flex", fontSize: 42, color: PURPLE, marginTop: 24 }, sub),
-          el("div", { display: "flex", fontSize: 30, color: "#9a8fa6", marginTop: 40 }, "samesaengil"),
+          el("div", { display: "flex", fontSize: 100, color: "#212529", letterSpacing: -2 }, headline),
+          el("div", { display: "flex", fontSize: 42, color: ACCENT_STRONG, marginTop: 24 }, sub),
+          el("div", { display: "flex", fontSize: 30, color: "#6c757d", marginTop: 40 }, "samesaengil"),
         ],
       ),
     ],
