@@ -216,10 +216,19 @@ function submit(dom: JSDOM, root: Element): void {
   assert(!!result.querySelector(".result-head"), "結果ヘッダがある");
   assert(result.querySelector(".result-head")!.textContent!.includes("3月15日"), "ヘッダに日付");
 
-  // 折りたたみ: 全セクションが details で初期は全閉（ヘッダは details の外）
+  // 折りたたみ: 全セクションが details。初期に開くのは ✨プロフィール/🔮小ネタ の2つだけ（ヘッダは details の外）
   const sections = [...result.querySelectorAll("details.section")];
   assert(sections.length >= 5, `セクションは details（実際: ${sections.length}個）`);
-  assert(sections.every((d) => !d.hasAttribute("open")), "初期状態は全セクション閉");
+  const openTitles = sections.filter((d) => d.hasAttribute("open")).map((d) => d.querySelector("h2")!.textContent!);
+  assert(openTitles.length === 2, `初期展開は2セクションだけ（実際: ${openTitles.join(" / ") || "なし"}）`);
+  assert(openTitles.some((t) => t.includes("あなたの誕生日プロフィール")), "プロフィールは初期展開");
+  assert(openTitles.some((t) => t.includes("誕生日の小ネタ")), "小ネタは初期展開");
+  // セクション順（resultHtml が唯一の順序定義。ネストの details.chart-list は .section に非マッチ）
+  const sectionTitles = sections.map((d) => d.querySelector("summary h2")!.textContent!);
+  const expectedOrder = ["プロフィール", "小ネタ", "生まれた年", "何の日", "同じ誕生日の有名人", "同じ誕生日のキャラ", "発売されたゲーム", "同じ学年"];
+  const orderIdx = expectedOrder.map((k) => sectionTitles.findIndex((t) => t.includes(k)));
+  assert(orderIdx.every((i) => i >= 0), `全セクションが存在（実際: ${sectionTitles.join(" / ")}）`);
+  assert(orderIdx.every((i, n) => n === 0 || i > orderIdx[n - 1]), `セクション順（実際: ${sectionTitles.join(" / ")}）`);
   assert(!!result.querySelector("details.section > summary h2"), "見出しは summary 内の h2");
   assert(!!result.querySelector("details.section summary .chev"), "シェブロンがある");
   assert(!result.querySelector(".result-head")!.closest("details"), "結果ヘッダは折りたたみの外");
@@ -462,6 +471,8 @@ function submit(dom: JSDOM, root: Element): void {
     animals: [
       { name: "テスト馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 5 },
     ],
+    // VTuber は有名人セクション内の推しサブブロックに出る（キャラ一覧にも残る）。
+    characters: [...SAMPLE.characters, { name: "テストV", work: "ホロライブプロダクション", color: "#00aaff" }],
     // 入力年（2000）と一致するものが無い＝⭐ が出ないケースも同時に確認する。
     games: Array.from({ length: 35 }, (_, i) => ({ name: `ゲーム${i}`, year: 1999, platform: "PS2" })),
   };
@@ -485,9 +496,20 @@ function submit(dom: JSDOM, root: Element): void {
   assert(moreBtn.textContent!.includes("＋5"), `残り5人表示（実際: ${moreBtn.textContent}）`);
   // 生年非公表（year=0）の表示
   assert([...result.querySelectorAll(".pcard .meta")].some((m) => m.textContent!.includes("生年非公表")), "生年非公表を表示");
-  // 動物セクション
-  assert(!!result.querySelector(".section h2")!, "セクションがある");
-  assert([...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物セクションがある");
+  // 推し・動物は独立セクションではなく有名人セクション内のサブブロック（.oshi-block）
+  const peopleSection = [...result.querySelectorAll("details.section")].find((d) =>
+    d.querySelector("h2")!.textContent!.includes("同じ誕生日の有名人"),
+  )!;
+  const subHeads = [...peopleSection.querySelectorAll("h3")].map((h) => h.textContent!);
+  assert(subHeads.some((t) => t.includes("動物・名馬")), `動物サブブロックが有名人セクション内（実際: ${subHeads.join(" / ")}）`);
+  assert([...peopleSection.querySelectorAll(".pcard .name")].some((n) => n.textContent === "テスト馬"), "動物カードが出る");
+  assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物の独立セクションは無い");
+  assert(subHeads.some((t) => t.includes("VTuber")), "VTuberサブブロックが有名人セクション内");
+  assert([...peopleSection.querySelectorAll(".chip .cname")].some((c) => c.textContent === "テストV"), "VTuberチップが出る");
+  assert(subHeads.some((t) => t.includes("有名人ぜんぶ")), "サブブロックと並ぶときは主一覧にも見出し");
+  assert(result.querySelectorAll("[data-people-grid]").length === 1, "data-people-grid は主グリッドのみ");
+  assert(result.querySelectorAll("[data-char-list]").length === 1, "data-char-list はキャラセクションのみ");
+  assert(peopleSection.querySelector(".count")!.textContent === "36件", "件数は有名人35＋動物1の合算（推しは数えない）");
   // 年データ 404 のときは「生まれた年」セクションごと非表示（壊れない）
   assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年")), "年データ無しなら年セクションは出ない");
 

@@ -87,7 +87,7 @@ export function summaryHtml(input: YMD, today: YMD): string {
     { k: "世代", v: gen || "—" },
   ];
 
-  return section("✨", "あなたの誕生日プロフィール", factsGrid(facts));
+  return section("✨", "あなたの誕生日プロフィール", factsGrid(facts), undefined, true);
 }
 
 /* ---------- 誕生日の小ネタ ---------- */
@@ -111,7 +111,7 @@ export function funFactsHtml(input: YMD, today: YMD): string {
     { k: "数秘（ライフパス）", v: String(life.number), sub: life.label },
     { k: "九星（本命星）", v: kyusei.star, sub: `五行は「${kyusei.element}」` },
   ];
-  return section("🔮", "誕生日の小ネタ", factsGrid(facts));
+  return section("🔮", "誕生日の小ネタ", factsGrid(facts), undefined, true);
 }
 
 interface Fact {
@@ -217,20 +217,34 @@ function chartListHtml(year: YearData, song: ChartWeek | null): string {
 /** 初期表示件数。これを超える分は「もっと見る」で展開。 */
 const PEOPLE_VISIBLE = 30;
 
-export function peopleHtml(people: Person[]): string {
-  if (people.length === 0) {
+/**
+ * 有名人セクション（🎤）。推し（K-POP/VTuber）と動物・名馬は独立セクションではなく
+ * この中のサブブロック（.oshi-block）——順序は 推し → 全員一覧 → 動物。
+ * 件数バッジは 人＋動物 の合算（推しは people/characters からの再カット＝重複なので数えない）。
+ */
+export function peopleHtml(people: Person[], chars: Character[], animals: Person[]): string {
+  const oshi = oshiBlocksHtml(people, chars);
+  const animalsBlock = animalsBlockHtml(animals);
+  const hasSubBlocks = !!(oshi || animalsBlock);
+  if (people.length === 0 && !hasSubBlocks) {
     return section("🎤", "同じ誕生日の有名人", `<p class="empty">この日のデータが見つかりませんでした。</p>`);
   }
-  const visible = people.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
-  // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
-  const restCount = Math.max(0, people.length - PEOPLE_VISIBLE);
-  const more = restCount
-    ? `<button class="more-btn" data-action="show-more-people">もっと見る（＋${restCount}人）</button>`
-    : "";
-  const body = `<div class="people-grid" data-people-grid>${visible}</div>
-    ${more}
+  let main = "";
+  if (people.length > 0) {
+    const visible = people.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
+    // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
+    const restCount = Math.max(0, people.length - PEOPLE_VISIBLE);
+    const more = restCount
+      ? `<button class="more-btn" data-action="show-more-people">もっと見る（＋${restCount}人）</button>`
+      : "";
+    // data-people-grid はこの主グリッドだけに付ける（more.ts がセクション内で一意に引く前提）。
+    const grid = `<div class="people-grid" data-people-grid>${visible}</div>${more}`;
+    // サブブロックが並ぶときだけ h3 で区分け（単独なら h2 直下の h3 は冗長）。
+    main = hasSubBlocks ? `<div class="oshi-block"><h3>有名人ぜんぶ（${people.length}人）</h3>${grid}</div>` : grid;
+  }
+  const body = `${oshi}${main}${animalsBlock}
     <p class="credit">顔写真・プロフィール: Wikipedia / Wikimedia Commons（各カードは出典記事にリンク）</p>`;
-  return section("🎤", "同じ誕生日の有名人", body, people.length);
+  return section("🎤", "同じ誕生日の有名人", body, people.length + animals.length || undefined);
 }
 
 /** 「もっと見る」で追加描画する残りカード（先頭 PEOPLE_VISIBLE 件を除く）。 */
@@ -265,15 +279,15 @@ function personCard(p: Person): string {
   return cardHtml(p, p.year > 0 ? `${p.year}年生まれ` : "生年非公表");
 }
 
-/* ---------- 推し（K-POPアイドル・VTuber） ---------- */
+/* ---------- 推し（K-POPアイドル・VTuber）——🎤内の先頭サブブロック ---------- */
 const KPOP_VISIBLE = 12;
 const VTUBER_VISIBLE = 24;
 
 /**
- * 有名人一覧とキャラ一覧に埋もれている「推し」を拾い直すハイライト。
- * 元のセクションからは除いていないので、全件はそちらで見られる。
+ * 有名人一覧とキャラ一覧に埋もれている「推し」を拾い直すハイライト（🎤内のサブブロック）。
+ * 元の一覧からは除いていないので、全件はそちらで見られる。空なら ""。
  */
-export function oshiHtml(people: Person[], chars: Character[]): string {
+function oshiBlocksHtml(people: Person[], chars: Character[]): string {
   const kpop = kpopOf(people);
   const vtubers = vtubersOf(chars);
   if (kpop.length === 0 && vtubers.length === 0) return "";
@@ -294,7 +308,7 @@ export function oshiHtml(people: Person[], chars: Character[]): string {
       }</div>`
     : "";
 
-  return section("🎙", "同じ誕生日の推し", `${kpopBlock}${vtuberBlock}`, kpop.length + vtubers.length);
+  return `${kpopBlock}${vtuberBlock}`;
 }
 
 /* ---------- 同じ学年の有名人 ---------- */
@@ -357,11 +371,11 @@ export function yearPeopleMoreHtml(people: YearPerson[], cat: string): string {
     .join("");
 }
 
-/* ---------- 動物・名馬 ---------- */
-export function animalsHtml(animals: Person[]): string {
-  if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはセクションごと非表示
+/* ---------- 動物・名馬——🎤内の末尾サブブロック ---------- */
+function animalsBlockHtml(animals: Person[]): string {
+  if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはブロックごと非表示
   const cards = animals.map((a) => personCard(a)).join("");
-  return section("🐎", "同じ誕生日の動物・名馬", `<div class="people-grid">${cards}</div>`, animals.length);
+  return `<div class="oshi-block"><h3>🐎 動物・名馬（${animals.length}件）</h3><div class="people-grid">${cards}</div></div>`;
 }
 
 /* ---------- フィクションキャラ ---------- */
@@ -525,11 +539,12 @@ export function shareHtml(): string {
 }
 
 /* ---------- 共通 ---------- */
-// 折りたたみ（初期は全閉）。class="section" は more.ts の .closest(".section") が依存するので維持。
+// 折りたたみ（初期に開くのは open 指定の ✨プロフィール/🔮小ネタ だけ・他は閉）。
+// class="section" は more.ts の .closest(".section") が依存するので維持。
 // シェブロンは ::after ではなく明示 span——count の margin-left:auto と共存させるため（CSS の .count + .chev 参照）。
-function section(emoji: string, title: string, body: string, count?: number): string {
+function section(emoji: string, title: string, body: string, count?: number, open = false): string {
   const c = count != null ? `<span class="count">${count}件</span>` : "";
-  return `<details class="section"><summary><h2><span class="emoji">${emoji}</span>${esc(title)}${c}<span class="chev" aria-hidden="true"></span></h2></summary><div class="section-body">${body}</div></details>`;
+  return `<details class="section"${open ? " open" : ""}><summary><h2><span class="emoji">${emoji}</span>${esc(title)}${c}<span class="chev" aria-hidden="true"></span></h2></summary><div class="section-body">${body}</div></details>`;
 }
 
 export function loadingHtml(): string {
@@ -559,12 +574,10 @@ export function resultHtml(
     bornYearHtml(input, year) +
     // 記念日は飲み会ネタとして鮮度が高いのに、数百件のキャラ一覧の下だと誰も辿り着けないのでここに置く。
     anniversaryHtml(input, day.anniversaries, day.kinenbi, day.events) +
-    gamesHtml(input, day.games) +
-    peopleHtml(day.people) +
-    oshiHtml(day.people, day.characters) +
-    sameYearHtml(input, day, cohort) +
-    animalsHtml(day.animals) +
+    peopleHtml(day.people, day.characters, day.animals) +
     charactersHtml(day.characters) +
+    gamesHtml(input, day.games) +
+    sameYearHtml(input, day, cohort) +
     shareHtml()
   );
 }

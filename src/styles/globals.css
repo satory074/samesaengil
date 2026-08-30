@@ -236,7 +236,7 @@ a:hover {
   color: transparent;
 }
 
-/* ---- セクション（details。初期は全閉） ---- */
+/* ---- セクション（details。初期は ✨プロフィール/🔮小ネタ だけ開・他は閉） ---- */
 .section {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -736,7 +736,7 @@ a.anniv:hover {
   min-width: 46px;
 }
 
-/* ---- 推し（K-POP・VTuber） ---- */
+/* ---- 有名人セクション内のサブブロック（推し・全員一覧・動物） ---- */
 .oshi-block + .oshi-block {
   margin-top: 18px;
 }
