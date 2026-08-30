@@ -9,7 +9,7 @@
 //   CHARS_ONLY=1 npm run aggregate  … Wikipedia を叩かず characters だけ差し替え（キャッシュ済みの人気で並べる）
 //   PHOTOS_ONLY=1 npm run aggregate … 日ページを叩かず、写真の無い人だけ外部ソースで補完して photo を差し替え
 //   KINENBI_ONLY=1 npm run aggregate … Wikipedia を叩かず kinenbi（協会認定記念日）だけ差し替え
-//   GAMES_ONLY=1 npm run aggregate  … Wikipedia を叩かず games（発売されたゲーム）だけ差し替え
+//   GAMES_ONLY=1 npm run aggregate  … Wikipedia を叩かず games（発売されたゲーム＋ジャケ）だけ差し替え
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -133,6 +133,17 @@ function canonTitles(seeds: GameSeedRow[], state: State): Map<string, string> {
   return map;
 }
 
+/**
+ * IGDB 由来のジャケット画像キャッシュ（src/data/igdb.json、コミット済み）。ゲーム名 → cover image_id。
+ * 実行時 API なし（anilist.json と同じ「読むだけ」）。取得できなかったもの（id:""）は入れない。
+ */
+function readGameCovers(): Map<string, string> {
+  const cache = readJson<Record<string, { id?: string }>>(path.join(ROOT, "src", "data", "igdb.json"), {});
+  const map = new Map<string, string>();
+  for (const [name, e] of Object.entries(cache)) if (e?.id) map.set(name, e.id);
+  return map;
+}
+
 /** ゲームの人気解決に使う jawiki 記事タイトル（ユニーク）。 */
 function allGameTitles(seeds: GameSeedRow[]): string[] {
   return [...new Set(seeds.map((g) => g.title).filter((t): t is string => Boolean(t)))];
@@ -169,7 +180,12 @@ function gameFameOf(seed: GameSeedRow, fame: Map<string, number>, canon: Map<str
  * （『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。
  * 並びは人物・キャラと同じ規範で 人気(閲覧数)降順 → 年の新しい順 → 名前。
  */
-function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>, canon: Map<string, string>): Map<string, Game[]> {
+function buildGameMap(
+  seeds: GameSeedRow[],
+  fame: Map<string, number>,
+  canon: Map<string, string>,
+  covers: Map<string, string>,
+): Map<string, Game[]> {
   const byDay = new Map<string, Map<string, { seed: GameSeedRow; platforms: string[] }>>();
   for (const g of seeds) {
     if (!g.name || !g.year || !g.month || !g.day) continue;
@@ -204,9 +220,10 @@ function buildGameMap(seeds: GameSeedRow[], fame: Map<string, number>, canon: Ma
         name: seed.name,
         year: seed.year,
         platform: platforms.join("・"),
-        // URL ではなく記事タイトル／appid を持つ（per-day を膨らませないため。types.ts の Game 参照）。
+        // URL ではなく記事タイトル／appid／画像IDを持つ（per-day を膨らませないため。types.ts の Game 参照）。
         ...(seed.title ? { title: seed.title } : {}),
         ...(seed.appid ? { appid: seed.appid } : {}),
+        ...(covers.get(seed.name) ? { cover: covers.get(seed.name) } : {}),
       })),
     );
   }
@@ -499,7 +516,7 @@ async function run(): Promise<void> {
   if (process.env.GAMES_ONLY) {
     const seeds = readGameSeeds();
     const gameFame = await resolveWorkFame(allGameTitles(seeds), state, true); // キャッシュ済みの人気だけ使う
-    const gameMap = buildGameMap(seeds, gameFame, canonTitles(seeds, state));
+    const gameMap = buildGameMap(seeds, gameFame, canonTitles(seeds, state), readGameCovers());
     let updated = 0;
     let missing = 0;
     for (const { month, day } of selectDays()) {
@@ -552,7 +569,7 @@ async function run(): Promise<void> {
   // ゲームも同じく取込済み JSON を読むだけ。並び替え用の人気はキャラの作品と同じ経路・同じキャッシュ。
   const gameSeeds = readGameSeeds();
   const gameFame = await resolveWorkFame(allGameTitles(gameSeeds), state);
-  const gameMap = buildGameMap(gameSeeds, gameFame, canonTitles(gameSeeds, state));
+  const gameMap = buildGameMap(gameSeeds, gameFame, canonTitles(gameSeeds, state), readGameCovers());
   console.log(`[aggregate] ゲーム: ${gameSeeds.length}本 / 人気解決 ${[...gameFame.values()].filter((v) => v > 0).length}件`);
 
   const single = days.length === 1;

@@ -74,6 +74,13 @@ export interface Game {
   title?: string;
   /** Steam の appid（Steam 由来のみ）。URL は同じく gameLink() で組み立てる。 */
   appid?: number;
+  /**
+   * ジャケット画像の識別子＝IGDB の cover image_id（例 "co1r7f"）。
+   * title / appid と同じく **URL ではなく識別子で持つ**（per-day はホットパス。完全な URL は
+   * 1件 +74B で最大の日に +25KB になる）。URL の組み立ては src/lib/games.ts の coverUrl()。
+   * 日本語版Wikipedia はジャケを持てず、任天堂公式は 1枚 1.6MB でリサイズ不可のため IGDB を使う。
+   */
+  cover?: string;
 }
 
 /** 1 日ぶんの集約データ（public/data/days/MM-DD.json）。 */

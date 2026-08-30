@@ -51,6 +51,15 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run rank:games
 
+      # ジャケット画像（IGDB）。キーが無ければ何もせず終わる（Spotify と同じ任意 Secret）。
+      # 人気順に解決し、1 実行の上限で残りは次回に持ち越す。
+      - name: Import game covers
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run import:covers
+        env:
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+
       - name: Aggregate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate
@@ -71,7 +80,7 @@ jobs:
         run: |
           git config user.name "data-bot"
           git config user.email "actions@github.com"
-          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json src/data/games.json src/data/steam.json
+          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json src/data/games.json src/data/steam.json src/data/igdb.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh birthday data"
             git push

@@ -2,7 +2,7 @@
 // すべてのデータ由来テキストは esc() でエスケープする。
 import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Game, Person, YearData, YearPerson } from "../lib/types";
 import { mergeAnniversaries } from "../lib/anniv";
-import { exactGamesOf, gameLink, withoutExactGames } from "../lib/games";
+import { coverUrl, exactGamesOf, gameLink, withoutExactGames } from "../lib/games";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   CAT_LABELS,
@@ -461,9 +461,15 @@ const GAMES_VISIBLE = 30;
 
 function gameRow(g: Game): string {
   const href = gameLink(g);
-  const label = `<span class="g-year">${g.year}</span><span class="g-name">${esc(g.name)}</span><span class="g-plat">${esc(
-    g.platform,
-  )}</span>`;
+  // ジャケは「器（.g-art）を常に出し、あれば img を重ねる」——読み込み失敗時は onerror で
+  // img が消えて 🎮 に戻る（オリコンの .cw-art / キャラの .dot と同じ流儀）。
+  const cover = coverUrl(g);
+  const img = cover
+    ? `<img class="g-img" src="${esc(cover)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+    : "";
+  const label = `<span class="g-art">${img}</span><span class="g-year">${g.year}</span><span class="g-name">${esc(
+    g.name,
+  )}</span><span class="g-plat">${esc(g.platform)}</span>`;
   // 記念日チップ・charChip と同じ分岐流儀（url があれば a、無ければ span）。
   return href
     ? `<li class="grow"><a href="${esc(href)}" target="_blank" rel="noopener">${label}</a></li>`

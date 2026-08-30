@@ -29,3 +29,14 @@ export function gameLink(g: Game): string {
   if (g.appid) return `https://store.steampowered.com/app/${g.appid}/`;
   return "";
 }
+
+/**
+ * ジャケット画像 URL。無ければ空文字（表示側は 🎮 プレースホルダのまま）。
+ * IGDB を先に見るのは、縦長サムネ専用 URL が軽く（実測 3.8KB）列の見た目も揃うため。
+ * Steam も縦長の library_600x900 を使って箱の縦横比を合わせる（Steam 由来は 1日 0〜2本）。
+ */
+export function coverUrl(g: Game): string {
+  if (g.cover) return `https://images.igdb.com/igdb/image/upload/t_cover_small/${g.cover}.jpg`;
+  if (g.appid) return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.appid}/library_600x900.jpg`;
+  return "";
+}

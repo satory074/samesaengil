@@ -61,7 +61,8 @@ import {
   yearOfArticle,
 } from "./sources/jawikiGameList";
 import { normalizeTitle, parseSteamDate, titlesMatch } from "./sources/steamStore";
-import { exactGamesOf, gameLink, withoutExactGames } from "../src/lib/games";
+import { coverUrl, exactGamesOf, gameLink, withoutExactGames } from "../src/lib/games";
+import { pickCover as pickIgdbCover } from "./sources/igdb";
 import { initials } from "../src/app/render";
 import type { Character, Game, Person, YearData, YearPerson } from "../src/lib/types";
 
@@ -707,7 +708,62 @@ function assert(cond: boolean, msg: string): void {
   assert(gameLink(games[0]) === "https://ja.wikipedia.org/wiki/A", "jawiki 記事が最優先");
   assert(gameLink(games[2]) === "https://store.steampowered.com/app/1/", "記事が無ければ Steam");
   assert(gameLink(games[3]) === "", "どちらも無ければ空");
+
+  // ジャケット URL: IGDB 優先 → Steam → 空（空なら表示側は 🎮 プレースホルダのまま）。
+  assert(
+    coverUrl({ ...games[0], cover: "co1r7f" }) ===
+      "https://images.igdb.com/igdb/image/upload/t_cover_small/co1r7f.jpg",
+    "IGDB の image_id からサムネ URL",
+  );
+  assert(coverUrl(games[2]).includes("/apps/1/library_600x900.jpg"), "cover が無ければ Steam の縦長ジャケ");
+  assert(coverUrl(games[3]) === "", "どちらも無ければ空");
+  assert(
+    coverUrl({ ...games[2], cover: "coX" }).startsWith("https://images.igdb.com/"),
+    "appid があっても IGDB を優先",
+  );
   console.log("[games/lib] OK");
+}
+
+// ---- 発売されたゲーム: IGDB の候補選び（scripts/sources/igdb.ts）----
+{
+  const g = (name: string, id: string, year?: number, alts: string[] = []) => ({
+    name,
+    cover: { image_id: id },
+    alternative_names: alts.map((n) => ({ name: n })),
+    ...(year ? { first_release_date: Date.UTC(year, 5, 1) / 1000 } : {}),
+  });
+  // 完全一致を包含一致より優先（続編に当たらないこと）。
+  assert(
+    pickIgdbCover([g("Slay the Spire 2", "coB", 2025), g("Slay the Spire", "coA", 2019)], {
+      name: "Slay the Spire",
+      year: 2019,
+    }).id === "coA",
+    "完全一致を包含一致より優先する",
+  );
+  // 日本語タイトルは alternative_names 側に入っている。
+  assert(
+    pickIgdbCover([g("The Legend of Zelda: Breath of the Wild", "coZ", 2017, ["ゼルダの伝説 ブレス オブ ザ ワイルド"])], {
+      name: "ゼルダの伝説 ブレス オブ ザ ワイルド",
+      year: 2017,
+    }).id === "coZ",
+    "別名（日本語タイトル）でも照合する",
+  );
+  // 同名リメイクは発売年で選ぶ。
+  assert(
+    pickIgdbCover([g("Ys", "coNew", 2013), g("Ys", "coOld", 1987)], { name: "Ys", year: 1987 }).id === "coOld",
+    "同名は発売年が近いほうを採る",
+  );
+  // cover を持たない候補は無視する。
+  assert(
+    pickIgdbCover([{ name: "カバー無し" }, g("カバー無し", "coC", 2000)], { name: "カバー無し", year: 2000 }).id === "coC",
+    "cover を持たない候補は飛ばす",
+  );
+  assert(pickIgdbCover([], { name: "なにか", year: 2000 }).id === "", "候補ゼロは負キャッシュ（空文字）");
+  assert(
+    pickIgdbCover([g("まったく別のゲーム", "coX", 2000)], { name: "探しもの", year: 2000 }).id === "",
+    "無関係な候補は採らない",
+  );
+  console.log("[games/igdb] OK");
 }
 
 console.log("\n✅ smoketest passed");

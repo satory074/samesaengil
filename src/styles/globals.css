@@ -787,13 +787,41 @@ a.anniv:hover {
 .game-list .grow > a,
 .game-list .grow > span {
   display: flex;
-  align-items: baseline;
+  /* サムネを入れたので baseline ではなく center。テキストだけの頃は baseline だった。 */
+  align-items: center;
   gap: 10px;
   font-size: 13px;
-  padding: 6px 4px;
+  padding: 5px 4px;
   border-top: 1px dashed var(--border);
   color: inherit;
   text-decoration: none;
+}
+/* ジャケ: プレースホルダ背面＋img 重ね（.cw-art と同じ流儀。onerror で img が消えると 🎮 に戻る）。
+   縦長なのはゲームのパッケージに合わせるため（IGDB t_cover_small は 90x128）。 */
+.game-list .g-art {
+  position: relative;
+  width: 30px;
+  height: 42px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--accent-grad-soft);
+  overflow: hidden;
+}
+.game-list .g-art::before {
+  content: "🎮";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.game-list .g-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .game-block.exact .game-list .grow > a,
 .game-block.exact .game-list .grow > span {

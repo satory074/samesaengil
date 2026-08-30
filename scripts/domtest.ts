@@ -60,7 +60,7 @@ const SAMPLE: DayData = {
   updatedAt: "2026-06-30T00:00:00Z",
   // 人気順で並んでいる前提（aggregate 側で済ませてある）。1995 のものが「⭐ 生まれた日ちょうど」。
   games: [
-    { name: "人気ゲーム", year: 2004, platform: "PS2", title: "NinkiGame" },
+    { name: "人気ゲーム", year: 2004, platform: "PS2", title: "NinkiGame", cover: "co1r7f" },
     { name: "生まれた日のゲーム", year: 1995, platform: "スーパーファミコン", title: "BirthGame" },
     { name: "リンクなしゲーム", year: 1999, platform: "ドリームキャスト" },
     { name: "Steam のゲーム", year: 2016, platform: "Steam", appid: 1 },
@@ -303,6 +303,26 @@ function submit(dom: JSDOM, root: Element): void {
   assert(
     gameRows.some((r) => !r.querySelector("a") && r.textContent!.includes("リンクなしゲーム")),
     "リンクが無い行は a にしない",
+  );
+  // ジャケ: 器（.g-art）は全行に出し、img だけが条件付き（onerror で 🎮 に戻せるように）。
+  assert(
+    [...result.querySelectorAll(".game-block .grow")].every((r) => !!r.querySelector(".g-art")),
+    "全行にジャケの器（.g-art）が出る",
+  );
+  assert(
+    gameRows[0].querySelector("img.g-img")!.getAttribute("src") ===
+      "https://images.igdb.com/igdb/image/upload/t_cover_small/co1r7f.jpg",
+    "cover ありは IGDB のサムネ URL",
+  );
+  const steamRow = gameRows.find((r) => r.textContent!.includes("Steam のゲーム"))!;
+  assert(
+    steamRow.querySelector("img.g-img")!.getAttribute("src")!.includes("/apps/1/library_600x900.jpg"),
+    "cover が無く appid があれば Steam のジャケ",
+  );
+  const noCoverRow = gameRows.find((r) => r.textContent!.includes("リンクなしゲーム"))!;
+  assert(
+    !noCoverRow.querySelector("img.g-img") && !!noCoverRow.querySelector(".g-art"),
+    "どちらも無い行は img 不在・器だけ（🎮 プレースホルダ）",
   );
 
   // 有名人カード（「同じ誕生日の有名人」セクションのグリッド＝data-people-grid に限定して数える）

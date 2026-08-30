@@ -15,6 +15,7 @@
     "rank:works": "tsx scripts/rankWorks.ts",
     "rank:games": "tsx scripts/rankGames.ts",
     "import:games": "tsx scripts/importGames.ts",
+    "import:covers": "tsx scripts/importGameCovers.ts",
     "import:characters": "tsx scripts/importFanwebCharacters.ts",
     "import:char-images": "tsx scripts/importCharacterImages.ts",
     "import:kinenbi": "tsx scripts/importKinenbi.ts",
