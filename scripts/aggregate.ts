@@ -134,7 +134,8 @@ function canonTitles(seeds: GameSeedRow[], state: State): Map<string, string> {
 }
 
 /**
- * IGDB 由来のジャケット画像キャッシュ（src/data/igdb.json、コミット済み）。ゲーム名 → cover image_id。
+ * IGDB 由来のジャケット画像キャッシュ（src/data/igdb.json、コミット済み）。
+ * **キーは jawiki 記事タイトル**（主経路が 記事→Q-ID→Wikidata の IGDB ID→ジャケ のため）。
  * 実行時 API なし（anilist.json と同じ「読むだけ」）。取得できなかったもの（id:""）は入れない。
  */
 function readGameCovers(): Map<string, string> {
@@ -223,7 +224,7 @@ function buildGameMap(
         // URL ではなく記事タイトル／appid／画像IDを持つ（per-day を膨らませないため。types.ts の Game 参照）。
         ...(seed.title ? { title: seed.title } : {}),
         ...(seed.appid ? { appid: seed.appid } : {}),
-        ...(covers.get(seed.name) ? { cover: covers.get(seed.name) } : {}),
+        ...(seed.title && covers.get(seed.title) ? { cover: covers.get(seed.title) } : {}),
       })),
     );
   }

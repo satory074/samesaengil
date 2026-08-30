@@ -38,7 +38,7 @@ npm run import:font            # Noto Sans JP → src/assets/fonts/NotoSansJP-Su
 npm run import:kinenbi         # kinenbi.gr.jp → src/data/kinenbi.json（記念日。他と違い週次 CI でも実行、~4分）
 npm run import:games           # 機種別「ゲームタイトル一覧」＋Steam → src/data/games.json（週次 CI でも実行、~4分）
 npm run import:covers          # IGDB → src/data/igdb.json（ゲームのジャケ。週次 CI でも実行。人気順・上限つき）
-IGDB_MAX=300 npm run import:covers             # 1実行の上限（既定800）。残りは次回に持ち越し
+IGDB_SEARCH_MAX=1600 npm run import:covers     # 保険段（ラテン文字名の1件ずつ検索）の1実行上限
 npx tsx scripts/importGames.ts PS2 ファミコン  # 指定機種だけ（デバッグ。ファイルは書かない）
 GAMES_SKIP_STEAM=1 npm run import:games        # Wikipedia の機種別一覧だけ（Steam 段は前回値を維持）
 GAMES_STEAM_ONLY=1 npm run import:games        # Steam 段だけ（送信上限で持ち越した候補を埋める高速パス）
@@ -50,7 +50,7 @@ RANK_GAMES_MAX=4000 npm run rank:games         # 人気解決を刻む（1実行
 **環境変数（すべて任意。無ければその段をスキップするだけで壊れない）**: `.env` に置けば `dotenv/config` で読まれる。CI では同名の Secret。
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` … **オリコン1位曲の Spotify リンク解決のみ**（未設定なら表示側は検索 URL にフォールバック）。顔写真には使わない。
 - `STEAM_MAX_REQUESTS`（既定 600。search＋details の合計本数）／`STEAM_MIN_GAP_MS`（既定 1600）／`STEAM_RECHECK=1` … **ゲームの Steam 段のみ**。キーは不要（公式ストア API は無認証）。
-- `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` … **ゲームのジャケット画像の解決のみ**（https://dev.twitch.tv/console/apps で無料取得）。未設定なら解決をスキップし、Steam 由来のジャケか 🎮 プレースホルダにフォールバック。つまみ: `IGDB_MAX`（既定800）／`IGDB_CHUNK`（既定50）／`IGDB_RECHECK=1`／`IGDB_CONCURRENCY`（既定4）／`IGDB_MIN_GAP_MS`（既定250＝4 req/秒）。
+- `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` … **ゲームのジャケット画像の解決のみ**（https://dev.twitch.tv/console/apps で無料取得）。未設定なら解決をスキップし、Steam 由来のジャケか 🎮 プレースホルダにフォールバック。つまみ: `IGDB_SEARCH_MAX`（保険段の1実行上限。既定400、0で無効）／`IGDB_RECHECK=1`／`IGDB_CONCURRENCY`（既定4）／`IGDB_MIN_GAP_MS`（既定250＝4 req/秒）。
 - 顔写真まわりのつまみ: `PHOTO_MIN_FAME`（P18 を試す閲覧数の下限。既定 5000）／`PHOTO_RECHECK=1`（「写真なし」の負キャッシュを引き直す）／`PHOTO_COMMONS=1`（Commons depicts 段を有効化。既定オフ・遅い）
 
 ## Architecture（big picture）
@@ -83,7 +83,11 @@ RANK_GAMES_MAX=4000 npm run rank:games         # 人気解決を刻む（1実行
   - **ただし素の閲覧数をそのまま使ってはいけない**——一覧の 3 割は原作アニメ・漫画の記事へリンクしている（『スロッターマニアV BLACK LAGOON』→ `[[BLACK LAGOON]]`）。そのままだと原作が有名なだけのゲームが『ゼルダの伝説 ブレス オブ ザ ワイルド』の上に来る。**リダイレクト解決後の記事名がゲーム名と完全一致する行だけを満点**にし、それ以外は `BORROWED_FAME`（0.15）倍する（`aggregate.ts` の `gameFameOf`）。判定に**リダイレクト解決後**のタイトルを使うのが要で、『ちびまる子ちゃん まる子絵日記ワールド』は記事名としては一致するが実体は `[[ちびまる子ちゃん]]` へのリダイレクトで原作の 52万閲覧を借りている。
   - **人気解決は 2.7万タイトルで初回 40分前後**かかる。`rank:games` は未解決ぶんだけをチャンク（500件）に割り、**チャンクごとに `state.json` へ途中保存**する（`RANK_GAMES_MAX` で 1 実行の上限も指定できる）。長時間実行が止められる環境でも進捗が消えない。
   - **同じ日に同名が複数機種で出ていれば 1 件にまとめて機種名を連結する**（`aggregate.ts` の `buildGameMap`。『クライマキナ』が PS4／PS5／Switch で 3 行になるのを防ぐ）。`games.json` 側は「1機種1行」で持つ——そうしておくと取込で**機種ごとに前回値フォールバック**できる。
-  - **ジャケット画像** `sources/igdb.ts`＋取込 `importGameCovers.ts` → コミット済み `src/data/igdb.json`（ゲーム名 → IGDB の cover image_id、`{"id":""}` は「IGDB に無い」の負キャッシュ）。設計は `spotify.ts` の写し（結果側で名前照合・正/負キャッシュ・失敗はキャッシュしない・1実行の上限で次回持ち越し・429 でサーキットブレーカー）。**人気降順に処理する**ので途中で止めても「初期表示の先頭30本」から埋まる。チャンク（50件）ごとに `igdb.json` を途中保存。
+  - **ジャケット画像** `sources/igdb.ts`＋取込 `importGameCovers.ts` → コミット済み `src/data/igdb.json`（**jawiki 記事タイトル** → IGDB の cover image_id、`{"id":""}` は負キャッシュ）。50件ごとに途中保存。
+    - **IGDB の `search` は日本語クエリに 0 件しか返さない**（『呪術廻戦』『鬼滅の刃 目指せ!最強隊士!』『転生したらスライムだった件』等で実測。唯一返った1件もラテン文字部分に反応した無関係な候補）。search 頼みだとヒット率 20% で頭打ちになる。
+    - **主経路は Wikidata 橋渡し**: `jawiki記事 → Q-ID（state.pages にキャッシュ済み）→ Wikidata の IGDB ID(P5794) → IGDB の slug 一括引き`。Wikidata の ID は人手で紐づけられているので**あいまい照合が要らず**、全段 50件バッチで数分。Q-ID を持つ記事の **63%** に P5794 がある（実測）。だから**キャッシュのキーはゲーム名ではなく記事タイトル**。
+    - **保険は search（ラテン文字名のみ）**: 英字タイトルなら search も効く（ヒット率 86%）。`isLatinName` で 6割以上が英数字の名前だけに投げる。`IGDB_SEARCH_MAX=0` で無効化。
+    - 結果: 記事タイトル 27,850件中 13,241件（48%）にジャケ。**初期表示の30行では 59%**（人気順なので有名作ほど Wikidata に紐づいている）。
     - **ソース選定の実測**（同じ轍を踏まないための記録）: 日本語版Wikipedia は**非自由画像を置けないためジャケが存在しない**（`state.pages` のキャッシュ済み画像は 27,850件中 461件＝2%、しかも『ふたりはプリキュア』→プリキュアの**電車**、『トランスフォーマー』→**着ぐるみ** と別物）。任天堂公式 eShop（`img-eshop.cdn.nintendo.net`）は**1枚1.6〜1.8MB でリサイズ指定不可**（`?w=300` 等は全て404）で、しかも『スーパーマリオブラザーズ3』などレトロは `iurl` が null＝画像自体が無い。→ どちらも不採用。
     - **Steam は appid から画像URLを直接導出できる**（`shared.akamai.steamstatic.com/store_item_assets/steam/apps/<appid>/library_600x900.jpg`）＝追加リクエスト0・保存バイト0。`Game.cover`（IGDB）を優先し、無ければ appid にフォールバックするのは `src/lib/games.ts` の `coverUrl()`。
     - `Game.cover` は URL ではなく **image_id だけ**を持つ（`title`/`appid` と同じ規範。完全な URL は1件+74Bで最大の日に+25KB）。

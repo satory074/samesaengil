@@ -1,21 +1,24 @@
 // ゲームのジャケット画像（IGDB の cover image_id）を src/data/igdb.json に貯める取込スクリプト。
 // 成果物はコミットする（aggregate は実行時に第三者サイトへ依存しない）。
 //
-//   npm run import:covers               … 未取得を上限まで解決（既定 800件/実行）
-//   IGDB_MAX=300 npm run import:covers  … 1 実行の上限。残りは次回に持ち越し
-//   IGDB_RECHECK=1 npm run import:covers … 「IGDB に無い」の負キャッシュも引き直す
-//   GAMES_ONLY=1 npm run aggregate      … 全366日へ反映（数秒）
+//   npm run import:covers                … Wikidata 橋渡しで一括解決（数分）＋ ラテン文字名の保険
+//   IGDB_SEARCH_MAX=0 npm run import:covers … 保険（1件ずつの search）を止めて Wikidata 段だけ
+//   IGDB_RECHECK=1 npm run import:covers … 「見つからなかった」負キャッシュも引き直す
+//   GAMES_ONLY=1 npm run aggregate       … 全366日へ反映（数秒）
 //
-// 資格情報（IGDB_CLIENT_ID / IGDB_CLIENT_SECRET）が無ければ何もせず終わる＝表示側は
-// Steam 由来のジャケか 🎮 プレースホルダのまま（他ソースと同じ graceful degradation）。
+// キー（IGDB_CLIENT_ID / IGDB_CLIENT_SECRET）が無ければ何もせず終わる＝表示側は Steam 由来の
+// ジャケか 🎮 プレースホルダのまま（Spotify と同じ graceful degradation）。
 //
-// **人気（ゲーム記事の年間閲覧数）降順に処理する**——初期表示は各日の先頭30本なので、
-// 途中で止めても「見えるところから埋まる」（importCharacterImages.ts と同じ理由）。
+// **キャッシュのキーは jawiki 記事タイトル**（ゲーム名ではない）。主経路が
+// 「記事 → Q-ID → Wikidata の IGDB ID → ジャケ」なので、記事タイトルが自然な単位になる。
+// 記事が無い行（全体の約12%）はジャケが付かない。
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import {
   emptyIgdbStats,
+  fetchCoversBySlug,
+  fetchIgdbSlugs,
   hasIgdbCreds,
   igdbBanned,
   isCached,
@@ -29,9 +32,6 @@ const ROOT = process.cwd();
 const GAMES_PATH = path.join(ROOT, "src", "data", "games.json");
 const OUT_PATH = path.join(ROOT, "src", "data", "igdb.json");
 
-/** チャンクごとに igdb.json を書き出す（長時間ランが止められても進捗を失わない）。 */
-const CHUNK = Math.max(1, Number(process.env.IGDB_CHUNK ?? 50));
-
 type GameSeedRow = { name: string; title?: string; year: number };
 
 function readJson<T>(p: string, fallback: T): T {
@@ -42,20 +42,15 @@ function readJson<T>(p: string, fallback: T): T {
   }
 }
 
-/** ゲーム名（ユニーク）を人気降順に。同名は最も古い年を代表にする（初出＝オリジナル）。 */
-function targetsByFame(rows: GameSeedRow[]): CoverTarget[] {
-  const state = readState();
-  const byName = new Map<string, { year: number; title?: string }>();
-  for (const r of rows) {
-    if (!r.name) continue;
-    const hit = byName.get(r.name);
-    if (!hit || r.year < hit.year) byName.set(r.name, { year: r.year, title: r.title ?? hit?.title });
-  }
-  const fameOf = (title?: string): number => (title ? (state.views[state.pages[title]?.title ?? ""] ?? 0) : 0);
-  return [...byName.entries()]
-    .map(([name, v]) => ({ name, year: v.year, fame: fameOf(v.title) }))
-    .sort((a, b) => b.fame - a.fame || a.name.localeCompare(b.name, "ja"))
-    .map(({ name, year }) => ({ name, year }));
+function save(cache: IgdbCache): void {
+  fs.writeFileSync(OUT_PATH, `${JSON.stringify(cache, null, 0)}\n`);
+}
+
+/** ラテン文字が主体の名前か（IGDB の search は日本語クエリに 0 件しか返さないため）。 */
+function isLatinName(s: string): boolean {
+  const letters = [...s].filter((c) => /\S/.test(c));
+  if (letters.length === 0) return false;
+  return letters.filter((c) => /[A-Za-z0-9]/.test(c)).length / letters.length >= 0.6;
 }
 
 async function run(): Promise<void> {
@@ -65,38 +60,75 @@ async function run(): Promise<void> {
     process.exit(1);
   }
   const cache = readJson<IgdbCache>(OUT_PATH, {});
-  const withCover = Object.values(cache).filter((e) => e.id).length;
+  const before = Object.values(cache).filter((e) => e.id).length;
 
   if (!hasIgdbCreds()) {
     console.warn(
       "[covers] IGDB_CLIENT_ID / IGDB_CLIENT_SECRET が未設定なので解決をスキップします" +
-        `（キャッシュ済み ${withCover} 件はそのまま使えます）。` +
+        `（キャッシュ済み ${before} 件はそのまま使えます）。` +
         " キーは https://dev.twitch.tv/console/apps で無料で取得できます。",
     );
     return;
   }
 
-  const all = targetsByFame(rows);
-  const todo = all.filter((t) => !isCached(t.name, cache));
-  const max = Math.max(1, Number(process.env.IGDB_MAX ?? 800));
-  const batch = todo.slice(0, max);
-  console.log(
-    `[covers] ゲーム名 ${all.length}件（解決済み ${withCover} / 未取得 ${todo.length}）。` +
-      `今回は人気順に ${batch.length}件を解決します…`,
-  );
+  // jawiki 記事タイトル（ユニーク）と、同名記事の代表年（初出＝オリジナル）。
+  const state = readState();
+  const byTitle = new Map<string, { year: number; name: string }>();
+  for (const r of rows) {
+    if (!r.title) continue;
+    const hit = byTitle.get(r.title);
+    if (!hit || r.year < hit.year) byTitle.set(r.title, { year: r.year, name: r.name });
+  }
+  const todo = [...byTitle.keys()].filter((t) => !isCached(t, cache));
+  console.log(`[covers] 記事タイトル ${byTitle.size}件（解決済み ${before} / 未取得 ${todo.length}）`);
 
   const stats = emptyIgdbStats();
-  for (let i = 0; i < batch.length; i += CHUNK) {
-    await resolveCovers(batch.slice(i, i + CHUNK), cache, stats);
-    fs.writeFileSync(OUT_PATH, `${JSON.stringify(cache, null, 0)}\n`);
-    console.log(`  …${Math.min(i + CHUNK, batch.length)}/${batch.length}（ジャケあり ${stats.resolved}）`);
-    if (igdbBanned()) break;
+
+  // ---- 主経路: Q-ID → Wikidata の IGDB ID(P5794) → slug 一括引き ----
+  // IGDB の search は日本語クエリに 0 件しか返さないので、これが本命。照合は不要
+  // （Wikidata 側で人手により紐づけられている）。
+  const qidOf = new Map<string, string>();
+  for (const t of todo) {
+    const q = state.pages[t]?.qid;
+    if (q) qidOf.set(t, q);
+  }
+  console.log(`[covers] Wikidata 段: Q-ID を持つ ${qidOf.size}件を引きます…`);
+  const slugByQid = await fetchIgdbSlugs([...new Set(qidOf.values())]);
+  console.log(`[covers]   IGDB ID(P5794) あり ${slugByQid.size}件 → IGDB でジャケを引きます…`);
+  const coverBySlug = await fetchCoversBySlug([...new Set(slugByQid.values())]);
+
+  const searched = new Set<string>();
+  for (const [title, qid] of qidOf) {
+    const slug = slugByQid.get(qid);
+    const cover = slug ? coverBySlug.get(slug) : undefined;
+    if (cover) {
+      cache[title] = { id: cover };
+      stats.resolved++;
+      searched.add(title);
+    }
+  }
+  save(cache);
+  console.log(`[covers] Wikidata 段 完了: ジャケ ${stats.resolved}件`);
+
+  // ---- 保険: ラテン文字名は search でも引ける（日本語は引けないので対象外）----
+  const searchMax = Number(process.env.IGDB_SEARCH_MAX ?? 400);
+  if (searchMax > 0 && !igdbBanned()) {
+    const rest: CoverTarget[] = todo
+      .filter((t) => !searched.has(t) && isLatinName(byTitle.get(t)!.name))
+      .slice(0, searchMax)
+      .map((t) => ({ name: byTitle.get(t)!.name, year: byTitle.get(t)!.year, key: t }));
+    console.log(`[covers] search 段: ラテン文字名 ${rest.length}件を1件ずつ引きます…`);
+    for (let i = 0; i < rest.length; i += 50) {
+      await resolveCovers(rest.slice(i, i + 50), cache, stats);
+      save(cache);
+      if (igdbBanned()) break;
+    }
   }
 
-  const rate = stats.resolved + stats.missing > 0 ? stats.resolved / (stats.resolved + stats.missing) : 0;
+  const after = Object.values(cache).filter((e) => e.id).length;
   console.log(
-    `[covers] 完了: 新規ジャケ${stats.resolved} / IGDB未収録${stats.missing}（ヒット率 ${(rate * 100).toFixed(0)}%）` +
-      ` / 失敗${stats.failed} / スキップ${stats.skipped} / 持ち越し${Math.max(0, todo.length - batch.length)}`,
+    `[covers] 完了: ジャケあり ${after}/${byTitle.size}件（${((after / byTitle.size) * 100).toFixed(0)}%）` +
+      ` / 今回 +${after - before} / 失敗${stats.failed}`,
   );
   console.log("[covers] 反映は GAMES_ONLY=1 npm run aggregate");
 }

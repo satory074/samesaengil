@@ -1,8 +1,15 @@
-// ゲームのジャケット画像を IGDB（Twitch）で解決する。設計は sources/spotify.ts の写し。
+// ゲームのジャケット画像を IGDB（Twitch）で解決する。
 //
 // 資格情報（IGDB_CLIENT_ID / IGDB_CLIENT_SECRET）が無ければ解決はスキップし、キャッシュ済みの
 // 分だけ埋める＝表示側は Steam 由来のジャケか 🎮 プレースホルダにフォールバックする。
-// 解決結果は src/data/igdb.json（"ゲーム名" -> {id}、{id:""} は「IGDB に無い」の負キャッシュ）。
+// 解決結果は src/data/igdb.json（"jawiki記事タイトル" -> {id}、{id:""} は負キャッシュ）。
+//
+// **主経路は Wikidata 橋渡しで、IGDB の検索は使わない**——IGDB の search は
+// **日本語クエリに 0 件しか返さない**（『呪術廻戦』『鬼滅の刃 目指せ!最強隊士!』等で実測）。
+// 代わりに jawiki記事 → Q-ID（state.pages にキャッシュ済み）→ Wikidata の IGDB ID(P5794)
+// → IGDB の slug 一括引き、と辿る。Wikidata の ID は人手で紐づけられているので**照合が不要**で、
+// 全段 50件バッチ＝数分で全件処理できる（Q-ID を持つ記事の 63% に P5794 があると実測）。
+// ラテン文字名だけは search も効くので、Wikidata で引けなかったぶんの保険に残してある。
 //
 // なぜ IGDB か: 日本語版Wikipedia は非自由画像を置けないためジャケが存在せず（キャッシュ済み
 // 画像は 2% で、しかも『プリキュアの電車』のような別物）、任天堂公式 eShop は 1枚 1.6MB で
@@ -41,6 +48,9 @@ export type IgdbCache = Record<string, IgdbEntry>;
 
 /** 解決したいゲーム 1 件（年は同名リメイクの取り違えを避けるために使う）。 */
 export interface CoverTarget {
+  /** キャッシュのキー＝jawiki 記事タイトル（主経路の Wikidata 橋渡しと同じ単位に揃える）。 */
+  key: string;
+  /** 検索語（ゲーム名）。 */
   name: string;
   year: number;
 }
@@ -112,6 +122,9 @@ function quote(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+/** 発売年の許容差。IGDB の first_release_date は世界初出で、日本版とずれることがある。 */
+const YEAR_SLACK = 1;
+
 /** IGDB の候補から採るものを選ぶ純関数（smoketest 対象）。 */
 export function pickCover(games: IgdbGame[], target: CoverTarget): IgdbEntry {
   const want = normalizeTitle(target.name);
@@ -121,17 +134,20 @@ export function pickCover(games: IgdbGame[], target: CoverTarget): IgdbEntry {
     g.first_release_date ? new Date(g.first_release_date * 1000).getUTCFullYear() : null;
 
   const withCover = games.filter((g) => g.cover?.image_id);
-  // 完全一致 → 発売年が ±1 年 → 包含一致 の順に絞る。包含一致だけで先頭を採ると
-  // 続編や別名義の作品が当たる（steamStore で『Slay the Spire』に続編が当たった実例と同じ）。
-  const exact = withCover.filter((g) => namesOf(g).some((n) => normalizeTitle(n) === want));
-  const sameYear = exact.filter((g) => {
+  const nearYear = (g: IgdbGame): boolean => {
     const y = yearOf(g);
-    return y !== null && Math.abs(y - target.year) <= 1;
-  });
+    return y !== null && Math.abs(y - target.year) <= YEAR_SLACK;
+  };
+  const exact = withCover.filter((g) => namesOf(g).some((n) => normalizeTitle(n) === want));
+  const loose = withCover.filter((g) => namesOf(g).some((n) => titlesMatch(n, target.name)));
+
+  // 名前の一致度 × 発売年の裏取り、の順に降りていく。名前だけで先頭を採ると続編や別名義に
+  // 当たる（steamStore で『Slay the Spire』に続編が当たった実例）ので、年で corroborate できる
+  // 候補を優先する。最後の段が要——**日本語名と英題は文字種が違って照合できない**が
+  // （『メタルギアソリッド3』と "Metal Gear Solid 3: Snake Eater"）、IGDB の検索順は信頼できるので、
+  // 発売年が合う先頭候補なら採る。これが無いとヒット率は 20% に落ちる（実測）。
   const hit =
-    sameYear[0] ??
-    exact[0] ??
-    withCover.filter((g) => namesOf(g).some((n) => titlesMatch(n, target.name)))[0];
+    exact.find(nearYear) ?? exact[0] ?? loose.find(nearYear) ?? withCover.find(nearYear) ?? loose[0];
   return { id: hit?.cover?.image_id ?? "" };
 }
 
@@ -195,7 +211,7 @@ export async function resolveCovers(targets: CoverTarget[], cache: IgdbCache, st
       }
       await pace();
       const entry = await searchCover(t);
-      cache[t.name] = entry;
+      cache[t.key] = entry;
       if (entry.id) stats.resolved++;
       else stats.missing++;
     } catch (e) {
@@ -210,4 +226,76 @@ export async function resolveCovers(targets: CoverTarget[], cache: IgdbCache, st
     }
   };
   await Promise.all(targets.map(run));
+}
+
+// ---- 主経路: Wikidata 橋渡し（jawiki記事 → Q-ID → IGDB ID → ジャケ）----
+
+const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
+
+interface WbEntities {
+  entities?: Record<string, { claims?: Record<string, { mainsnak?: { datavalue?: { value?: unknown } } }[]> }>;
+}
+
+/** Q-ID → IGDB の slug（P5794）。Wikidata に無いものは Map に入らない。50件バッチ。 */
+export async function fetchIgdbSlugs(qids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < qids.length; i += 50) {
+    const params = new URLSearchParams({
+      action: "wbgetentities",
+      ids: qids.slice(i, i + 50).join("|"),
+      props: "claims",
+      format: "json",
+      formatversion: "2",
+      origin: "*",
+    });
+    try {
+      const data = await fetchJson<WbEntities>(`${WIKIDATA_API}?${params.toString()}`);
+      for (const [qid, e] of Object.entries(data.entities ?? {})) {
+        const v = e.claims?.P5794?.[0]?.mainsnak?.datavalue?.value;
+        if (typeof v === "string" && v) out.set(qid, v);
+      }
+    } catch {
+      // 取れなかったバッチは次回に回す（負キャッシュにしない）
+    }
+  }
+  return out;
+}
+
+/** IGDB の slug → cover image_id。50件バッチ・照合不要（Wikidata が紐づけ済み）。 */
+export async function fetchCoversBySlug(slugs: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < slugs.length; i += 50) {
+    const batch = slugs.slice(i, i + 50);
+    const quoted = batch.map((s) => `"${quote(s)}"`).join(",");
+    const body = `fields slug,cover.image_id; where slug = (${quoted}); limit 50;`;
+    const call = async (token: string): Promise<{ slug?: string; cover?: { image_id?: string } }[]> =>
+      fetchJson(API_URL, {
+        gate: false,
+        retries: 3,
+        max429WaitMs: MAX_429_WAIT_MS,
+        method: "POST",
+        body,
+        headers: { "Client-ID": process.env.IGDB_CLIENT_ID ?? "", Authorization: `Bearer ${token}` },
+      });
+    try {
+      await pace();
+      let games;
+      try {
+        games = await call(await getToken());
+      } catch (e) {
+        if (!(e instanceof HttpError) || e.status !== 401) throw e;
+        games = await call(await getToken(true));
+      }
+      for (const g of games ?? []) {
+        if (g.slug && g.cover?.image_id) out.set(g.slug, g.cover.image_id);
+      }
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 429) {
+        banned = true;
+        console.warn("[covers] 429（レート上限）を検知。この実行では以降をスキップします（次回再試行）");
+        break;
+      }
+    }
+  }
+  return out;
 }

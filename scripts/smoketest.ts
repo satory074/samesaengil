@@ -735,7 +735,7 @@ function assert(cond: boolean, msg: string): void {
   // 完全一致を包含一致より優先（続編に当たらないこと）。
   assert(
     pickIgdbCover([g("Slay the Spire 2", "coB", 2025), g("Slay the Spire", "coA", 2019)], {
-      name: "Slay the Spire",
+      key: "t", name: "Slay the Spire",
       year: 2019,
     }).id === "coA",
     "完全一致を包含一致より優先する",
@@ -743,25 +743,43 @@ function assert(cond: boolean, msg: string): void {
   // 日本語タイトルは alternative_names 側に入っている。
   assert(
     pickIgdbCover([g("The Legend of Zelda: Breath of the Wild", "coZ", 2017, ["ゼルダの伝説 ブレス オブ ザ ワイルド"])], {
-      name: "ゼルダの伝説 ブレス オブ ザ ワイルド",
+      key: "t", name: "ゼルダの伝説 ブレス オブ ザ ワイルド",
       year: 2017,
     }).id === "coZ",
     "別名（日本語タイトル）でも照合する",
   );
   // 同名リメイクは発売年で選ぶ。
   assert(
-    pickIgdbCover([g("Ys", "coNew", 2013), g("Ys", "coOld", 1987)], { name: "Ys", year: 1987 }).id === "coOld",
+    pickIgdbCover([g("Ys", "coNew", 2013), g("Ys", "coOld", 1987)], { key: "t", name: "Ys", year: 1987 }).id === "coOld",
     "同名は発売年が近いほうを採る",
   );
   // cover を持たない候補は無視する。
   assert(
-    pickIgdbCover([{ name: "カバー無し" }, g("カバー無し", "coC", 2000)], { name: "カバー無し", year: 2000 }).id === "coC",
+    pickIgdbCover([{ name: "カバー無し" }, g("カバー無し", "coC", 2000)], { key: "t", name: "カバー無し", year: 2000 }).id === "coC",
     "cover を持たない候補は飛ばす",
   );
-  assert(pickIgdbCover([], { name: "なにか", year: 2000 }).id === "", "候補ゼロは負キャッシュ（空文字）");
+  assert(pickIgdbCover([], { key: "t", name: "なにか", year: 2000 }).id === "", "候補ゼロは負キャッシュ（空文字）");
+  // 日本語名 vs 英題は文字種が違って照合できないので、名前が合わなくても**発売年が合えば**
+  // IGDB の検索順を信じて採る（これが無いとヒット率が 20% に落ちる）。
   assert(
-    pickIgdbCover([g("まったく別のゲーム", "coX", 2000)], { name: "探しもの", year: 2000 }).id === "",
-    "無関係な候補は採らない",
+    pickIgdbCover([g("Metal Gear Solid 3: Snake Eater", "coM", 2004)], {
+      key: "t", name: "メタルギアソリッド3",
+      year: 2004,
+    }).id === "coM",
+    "名前が照合できなくても発売年が合えば採る（日本語名 vs 英題）",
+  );
+  // 逆に、年も合わなければ採らない——これが唯一の歯止め。
+  assert(
+    pickIgdbCover([g("まったく別のゲーム", "coX", 1990)], { key: "t", name: "探しもの", year: 2005 }).id === "",
+    "名前も年も合わない候補は採らない",
+  );
+  // 名前が合う候補と、年だけ合う候補が並んだら名前を優先する。
+  assert(
+    pickIgdbCover([g("年だけ合う別物", "coY", 2000), g("探しもの", "coZ", 1995)], {
+      key: "t", name: "探しもの",
+      year: 2000,
+    }).id === "coZ",
+    "名前一致は年だけの一致より優先",
   );
   console.log("[games/igdb] OK");
 }
