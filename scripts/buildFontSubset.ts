@@ -23,7 +23,7 @@ export const OG_GLYPHS =
   // 汎用カード: "同じ誕生日" / "有名人 キャラ 記念日"
   "同じ誕記念" +
   // ワードマーク
-  "samesaengilabcdefghijklmnopqrstuvwxyz ";
+  "Same Saengil abcdefghijklmnopqrstuvwxyz ";
 
 async function download(url: string): Promise<Buffer> {
   const res = await fetch(url, { redirect: "follow" });

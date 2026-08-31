@@ -528,14 +528,10 @@ export function gamesMoreHtml(games: Game[]): string {
 
 /* ---------- 共有 ---------- */
 export function shareHtml(): string {
-  return section(
-    "📣",
-    "シェアして盛り上がる",
-    `<div class="share-row">
-      <button class="share-btn x" data-action="share-x">𝕏 でシェア</button>
-      <button class="share-btn copy" data-action="copy-link">🔗 リンクをコピー</button>
-    </div>`,
-  );
+  return `<div class="share-row">
+    <button class="share-btn x" data-action="share-x">𝕏 でシェア</button>
+    <button class="share-btn copy" data-action="copy-link">🔗 リンクをコピー</button>
+  </div>`;
 }
 
 /* ---------- 共通 ---------- */

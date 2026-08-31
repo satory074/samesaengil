@@ -188,7 +188,7 @@ export function boot(root: HTMLElement): void {
     const i = last?.input;
     const head = i ? `【${i.month}月${i.day}日生まれ】` : "";
     const who = last?.firstPerson ? `同じ誕生日の有名人は${last.firstPerson}など！` : "";
-    return `${head}${who}あなたは誰と一緒？ #samesaengil`;
+    return `${head}${who} #samesaengil`;
   }
 
   // ---- イベント配線 ----

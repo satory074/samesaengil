@@ -51,7 +51,7 @@ export async function renderOgCard(headline: string, sub: string): Promise<Array
         [
           el("div", { display: "flex", fontSize: 100, color: "#212529", letterSpacing: -2 }, headline),
           el("div", { display: "flex", fontSize: 42, color: ACCENT_STRONG, marginTop: 24 }, sub),
-          el("div", { display: "flex", fontSize: 30, color: "#6c757d", marginTop: 40 }, "samesaengil"),
+          el("div", { display: "flex", fontSize: 30, color: "#6c757d", marginTop: 40 }, "Same Saengil"),
         ],
       ),
     ],
