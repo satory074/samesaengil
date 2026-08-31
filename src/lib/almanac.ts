@@ -19,7 +19,7 @@ export interface Zodiac {
 }
 
 // 各星座の「開始日（含む）」。最後の やぎ座 は年をまたぐので特別扱い。
-const ZODIAC: { from: MD; z: Zodiac }[] = [
+export const ZODIAC: { from: MD; z: Zodiac }[] = [
   { from: { month: 1, day: 20 }, z: { name: "みずがめ座", emoji: "♒", range: "1/20–2/18" } },
   { from: { month: 2, day: 19 }, z: { name: "うお座", emoji: "♓", range: "2/19–3/20" } },
   { from: { month: 3, day: 21 }, z: { name: "おひつじ座", emoji: "♈", range: "3/21–4/19" } },
@@ -52,7 +52,7 @@ export function zodiacOf({ month, day }: MD): Zodiac {
 
 /* ---------- 誕生石（月別） ---------- */
 
-const BIRTHSTONES: string[] = [
+export const BIRTHSTONES: string[] = [
   "ガーネット", // 1
   "アメジスト", // 2
   "アクアマリン", // 3
@@ -80,7 +80,7 @@ export interface Eto {
   emoji: string;
 }
 
-const ETO: Eto[] = [
+export const ETO: Eto[] = [
   { name: "子", reading: "ね", animal: "ねずみ", emoji: "🐭" },
   { name: "丑", reading: "うし", animal: "うし", emoji: "🐮" },
   { name: "寅", reading: "とら", animal: "とら", emoji: "🐯" },
@@ -133,12 +133,23 @@ export function warekiOf({ year, month, day }: YMD): Wareki | null {
 
 /* ---------- 世代（ポップ呼称） ---------- */
 
+export interface Generation {
+  name: string;
+  from: number; // この年以上（生まれ年）
+  to?: number; // この年以下。無しは「現在まで」
+}
+
+// 新しい順（from 降順が generationOf の前提）。1946 より前は該当なし＝空文字。
+export const GENERATIONS: Generation[] = [
+  { name: "α世代", from: 2013 },
+  { name: "Z世代", from: 1997, to: 2012 },
+  { name: "ミレニアル世代", from: 1981, to: 1996 },
+  { name: "X世代", from: 1965, to: 1980 },
+  { name: "ベビーブーマー", from: 1946, to: 1964 },
+];
+
 export function generationOf(year: number): string {
-  if (year >= 2013) return "α世代";
-  if (year >= 1997) return "Z世代";
-  if (year >= 1981) return "ミレニアル世代";
-  if (year >= 1965) return "X世代";
-  if (year >= 1946) return "ベビーブーマー";
+  for (const g of GENERATIONS) if (year >= g.from) return g.name;
   return "";
 }
 
@@ -149,7 +160,7 @@ export interface BirthFlower {
   meaning: string; // 花言葉
 }
 
-const BIRTH_FLOWERS: BirthFlower[] = [
+export const BIRTH_FLOWERS: BirthFlower[] = [
   { flower: "スイセン", meaning: "うぬぼれ・自己愛" }, // 1
   { flower: "ウメ", meaning: "高潔・忠実" }, // 2
   { flower: "チューリップ", meaning: "思いやり・博愛" }, // 3
@@ -275,7 +286,7 @@ export interface Milestone {
   daysUntil: number; // あと何日
 }
 
-const MILESTONES = [
+export const MILESTONES = [
   1000, 2000, 3000, 5000, 7777, 10000, 11111, 15000, 20000, 22222, 25000, 30000, 33333, 35000, 40000,
 ];
 
@@ -294,7 +305,7 @@ export interface LifePath {
   label: string;
 }
 
-const LIFE_PATH_LABELS: Record<number, string> = {
+export const LIFE_PATH_LABELS: Record<number, string> = {
   1: "リーダー",
   2: "サポーター",
   3: "エンターテイナー",
@@ -331,7 +342,7 @@ export interface Kyusei {
   element: string; // 五行（水/土/木/金/火）
 }
 
-const KYUSEI: Kyusei[] = [
+export const KYUSEI: Kyusei[] = [
   { star: "一白水星", element: "水" },
   { star: "二黒土星", element: "土" },
   { star: "三碧木星", element: "木" },

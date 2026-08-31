@@ -27,13 +27,10 @@ export function dayKey(month: number, day: number): string {
 }
 
 /**
- * クエリ文字列から生年月日を取り出す。妥当でなければ null。
- * 受理: ?d=1995-03-15 / d=1995-3-15（ゼロ詰めなしも許容）。
+ * "YYYY-MM-DD"（ゼロ詰めなしも許容）を生年月日に。妥当でなければ null。
+ * ?d= と localStorage（storage.ts）の両方がこの形式を読む。
  */
-export function decodeQuery(search: string): BirthInput | null {
-  const p = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  const raw = p.get("d");
-  if (!raw) return null;
+export function decodeDate(raw: string): BirthInput | null {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw.trim());
   if (!m) return null;
   const year = Number(m[1]);
@@ -41,6 +38,17 @@ export function decodeQuery(search: string): BirthInput | null {
   const day = Number(m[3]);
   if (!isValidDate(year, month, day)) return null;
   return { year, month, day };
+}
+
+/**
+ * クエリ文字列から生年月日を取り出す。妥当でなければ null。
+ * 受理: ?d=1995-03-15 / d=1995-3-15（ゼロ詰めなしも許容）。
+ */
+export function decodeQuery(search: string): BirthInput | null {
+  const p = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const raw = p.get("d");
+  if (!raw) return null;
+  return decodeDate(raw);
 }
 
 /** 実在する日付か（うるう年・月末を考慮）。 */

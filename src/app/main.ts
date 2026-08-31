@@ -6,8 +6,10 @@ import { siteLink } from "../lib/url";
 import { cohortYearOf, exactMatchesOf, withoutExact } from "../lib/peers";
 import { exactGamesOf, withoutExactGames } from "../lib/games";
 import { dayKey, decodeQuery, encodeQuery, isValidDate, daysInMonth } from "./share";
-import { loadingHtml, resultHtml } from "./render";
+import { allBirthdayPeople, loadingHtml, resultHtml } from "./render";
 import { wireMoreButtons } from "./more";
+import { wireHelp } from "./help";
+import { loadLastInput, saveLastInput } from "./storage";
 
 interface Refs {
   year: HTMLSelectElement;
@@ -29,7 +31,7 @@ export function boot(root: HTMLElement): void {
 
   // 直近の結果（シェア文言用）。
   let last: { input: YMD; firstPerson?: string } | null = null;
-  // 直近の有名人一覧（「もっと見る」の遅延描画用）。
+  // 直近の有名人一覧（「もっと見る」の遅延描画用。render と同じく動物込みの統合配列）。
   let lastPeople: Person[] = [];
   // 直近のキャラ一覧（「もっと見る」の遅延描画用）。
   let lastCharacters: Character[] = [];
@@ -155,6 +157,7 @@ export function boot(root: HTMLElement): void {
     }
     clearFormError();
     syncUrl(input);
+    saveLastInput(input);
     refs.result.innerHTML = loadingHtml();
     const key = dayKey(input.month, input.day);
     // 学年（年度）は早生まれだと暦年の1つ前になり、同学年の有名人はそちらのファイルに入っている。
@@ -176,7 +179,7 @@ export function boot(root: HTMLElement): void {
       const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
       refs.result.scrollIntoView?.({ behavior: reduce ? "auto" : "smooth", block: "start" });
     }
-    lastPeople = day.people;
+    lastPeople = allBirthdayPeople(day.people, day.animals);
     lastCharacters = day.characters;
     // render 側と同じ切り方（⭐ に出した人はカテゴリ側に出さない）。
     lastYearPeople = cohort ? withoutExact(cohort.people, exactMatchesOf(day.people, input.year)) : [];
@@ -210,6 +213,20 @@ export function boot(root: HTMLElement): void {
       window.open(url, "_blank", "noopener");
     } else if (action === "copy-link") {
       void copyLink(target);
+    } else if (action === "set-today") {
+      // 今日の日付をフォームに入れるだけ（診断は「調べる」で）。
+      setInput(todayYMD());
+      clearFormError();
+    } else if (action === "scroll-top") {
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      try {
+        window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+      } catch {
+        /* jsdom は scrollTo 未実装 */
+      }
+    } else if (action === "collapse-all") {
+      // .section に限定しない＝ネストの「週間1位一覧」（.chart-list）も一緒に閉じる。
+      refs.result.querySelectorAll("details[open]").forEach((d) => d.removeAttribute("open"));
     }
   });
   wireMoreButtons(root, {
@@ -218,6 +235,7 @@ export function boot(root: HTMLElement): void {
     yearPeople: () => lastYearPeople,
     games: () => lastGames,
   });
+  wireHelp(root, { input: () => last?.input ?? null, today: todayYMD });
 
   async function copyLink(btn: HTMLElement): Promise<void> {
     try {
@@ -240,6 +258,10 @@ export function boot(root: HTMLElement): void {
   if (shared) {
     setInput(shared);
     void diagnose();
+  } else {
+    // ?d= が無ければ前回入力した生年月日をフォームに戻す（入力のみ・診断はしない）。
+    const saved = loadLastInput();
+    if (saved) setInput(saved);
   }
 }
 

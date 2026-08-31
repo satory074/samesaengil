@@ -1,12 +1,20 @@
 // エンジン純関数のスモークテスト。実行: npx tsx scripts/smoketest.ts
 // 1) almanac（星座・誕生石・干支・和暦・世代・年齢・誕生花）
 // 2) share（日付クエリの encode/decode・妥当性判定）
-// 3) year / oshi / peers（生まれた年・推し・同じ学年）
+// 3) year / peers（生まれた年・同じ学年）
 // 4) portrait / initials（顔写真の照合ロジックと、写真が無いカードの見た目）
 // 5) spotify（曲の照合・ジャケット選択・キャッシュ互換読み）
 // 6) kinenbi / anniv（日本記念日協会のパースと Wikipedia とのマージ）
 // 7) games（機種別「ゲームタイトル一覧」のパースと、⭐ 生まれた日ちょうどの切り分け）
 import {
+  BIRTH_FLOWERS,
+  BIRTHSTONES,
+  ETO,
+  GENERATIONS,
+  KYUSEI,
+  LIFE_PATH_LABELS,
+  MILESTONES,
+  ZODIAC,
   ageOf,
   birthFlowerOf,
   birthstoneOf,
@@ -26,6 +34,7 @@ import {
 import {
   dayKey,
   daysInMonth,
+  decodeDate,
   decodeQuery,
   encodeDate,
   encodeQuery,
@@ -33,7 +42,6 @@ import {
   isValidDate,
 } from "../src/app/share";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../src/lib/year";
-import { kpopOf, vtubersOf } from "../src/lib/oshi";
 import {
   categorize,
   cohortLabel,
@@ -64,7 +72,7 @@ import { normalizeTitle, parseSteamDate, titlesMatch } from "./sources/steamStor
 import { coverUrl, exactGamesOf, gameLink, withoutExactGames } from "../src/lib/games";
 import { pickCover as pickIgdbCover } from "./sources/igdb";
 import { initials } from "../src/app/render";
-import type { Character, Game, Person, YearData, YearPerson } from "../src/lib/types";
+import type { Game, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -119,6 +127,14 @@ function assert(cond: boolean, msg: string): void {
   assert(generationOf(2000) === "Z世代", "2000 Z世代");
   assert(generationOf(1990) === "ミレニアル世代", "1990 ミレニアル");
   assert(generationOf(2015) === "α世代", "2015 α世代");
+  // 表駆動化（？一覧のため）後も境界が動いていないこと
+  assert(generationOf(2012) === "Z世代" && generationOf(1996) === "ミレニアル世代", "世代の境界（2012/1996）");
+  assert(generationOf(1965) === "X世代" && generationOf(1964) === "ベビーブーマー", "世代の境界（1965/1964）");
+  assert(generationOf(1945) === "", "1945 以前は呼称なし");
+  assert(
+    GENERATIONS.every((g, i) => i === 0 || g.from < GENERATIONS[i - 1].from),
+    "GENERATIONS は from 降順（generationOf の前提）",
+  );
   console.log("[wareki/gen] OK");
 }
 
@@ -150,6 +166,12 @@ function assert(cond: boolean, msg: string): void {
   const inp = { year: 2003, month: 12, day: 24 };
   const round = decodeQuery(encodeQuery(inp));
   assert(JSON.stringify(round) === JSON.stringify(inp), "encode→decode round-trip");
+
+  // decodeDate（?d= と localStorage の共通パーサ）
+  assert(decodeDate("1995-03-15")?.month === 3, "decodeDate 正常");
+  assert(decodeDate("1995-3-5")?.day === 5, "decodeDate ゼロ詰めなしも許容");
+  assert(decodeDate("2026-02-29") === null && decodeDate("abc") === null, "decodeDate 不正は null");
+  assert(JSON.stringify(decodeDate(encodeDate(inp))) === JSON.stringify(inp), "encodeDate→decodeDate round-trip");
 
   assert(isLeap(2000) && !isLeap(1900) && isLeap(2024) && !isLeap(2023), "うるう年判定");
   assert(daysInMonth(2024, 2) === 29 && daysInMonth(2023, 2) === 28, "2月の日数");
@@ -300,41 +322,20 @@ function assert(cond: boolean, msg: string): void {
   console.log("[spotify] OK");
 }
 
-// ---- 9) 推し（K-POP・VTuber の再カット） ----
+// ---- 9) almanac の一覧表（？ボタンの単一ソース。export の形が壊れていないか） ----
 {
-  const person = (name: string, desc: string): Person => ({
-    name,
-    nameEn: "",
-    year: 2000,
-    desc,
-    photo: "",
-    url: "",
-    jaKnown: true,
-    fame: 1,
-  });
-  const kpop = kpopOf([
-    person("JUNG KOOK", "アイドル、歌手（BTS）"),
-    person("ユジン", "アイドル（IVE、元IZ*ONE）"),
-    person("シュファ", "アイドル（(G)I-DLE）"),
-    // 部分一致の罠: "Aivery" の中の "IVE"、"KARAOKE" の中の "KARA" を拾ってはいけない
-    person("諸橋姫向", "アイドル（Aivery、元NGT48）"),
-    person("誰か", "KARAOKE 芸人"),
-    person("山田太郎", "俳優"),
-  ]);
-  assert(kpop.length === 3, `K-POP は3人（実際: ${kpop.map((p) => p.name).join(",")}）`);
-  assert(!kpop.some((p) => p.name === "諸橋姫向"), "Aivery を IVE と誤検出しない（単語境界）");
-  assert(!kpop.some((p) => p.name === "誰か"), "KARAOKE を KARA と誤検出しない");
-
-  const chars: Character[] = [
-    { name: "叶", work: "にじさんじ" },
-    { name: "アズマリム", work: "バーチャルYouTuber" },
-    { name: "渋谷ハル", work: "バーチャルYoutuber" }, // 表記ゆれ（小文字 t）
-    { name: "モンキー・D・ルフィ", work: "ONE PIECE" },
-  ];
-  const v = vtubersOf(chars);
-  assert(v.length === 3, `VTuber は3人（実際: ${v.length}）`);
-  assert(!v.some((c) => c.work === "ONE PIECE"), "普通のキャラは含めない");
-  console.log("[oshi] OK");
+  assert(ZODIAC.length === 12 && ZODIAC.every(({ z }) => z.range.length > 0), "星座12件＋期間つき");
+  assert(ETO.length === 12 && BIRTHSTONES.length === 12 && BIRTH_FLOWERS.length === 12, "干支・誕生石・誕生花は12件");
+  assert(KYUSEI.length === 9, "九星9件");
+  assert(
+    MILESTONES.every((m, i) => i === 0 || m > MILESTONES[i - 1]),
+    "MILESTONES は昇順（nextMilestoneOf の find の前提）",
+  );
+  assert(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 22, 33].every((n) => (LIFE_PATH_LABELS[n] ?? "").length > 0),
+    "数秘は 1-9＋マスターナンバー全部にラベル",
+  );
+  console.log("[almanac tables] OK");
 }
 
 // ---- 10) 同じ学年の有名人（学年判定・肩書きの分類・⭐ 完全一致） ----

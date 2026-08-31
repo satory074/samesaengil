@@ -155,17 +155,31 @@ function fakeFetch(day: DayData, years: Record<number, YearData> | null = SAMPLE
 
 function appHtml(): string {
   const opt = (n: number) => `<option value="${n}">${n}</option>`;
-  const years = [1970, 1993, 1995, 2000, 2003].map(opt).join("");
+  // 今年は「本日」ボタンのテスト用（本番の index.astro は 1900〜今年を常に持つ）。
+  const years = [...new Set([1970, 1993, 1995, 2000, 2003, new Date().getFullYear()])].map(opt).join("");
   const months = Array.from({ length: 12 }, (_, i) => opt(i + 1)).join("");
   const daysO = Array.from({ length: 31 }, (_, i) => opt(i + 1)).join("");
+  // 本番の index.astro と二重定義（フォーム・追従ボタン・help オーバーレイ）。新要素は両方に足すこと。
   return `<!DOCTYPE html><body><main id="app">
     <form class="bday-form" id="bday-form">
       <select id="in-year">${years}</select>
       <select id="in-month">${months}</select>
       <select id="in-day">${daysO}</select>
       <button type="submit" data-action="diagnose">調べる</button>
+      <button type="button" data-action="set-today">本日</button>
     </form>
     <div id="result"></div>
+    <div class="float-nav">
+      <button type="button" class="float-btn" data-action="scroll-top">↑</button>
+      <button type="button" class="float-btn" data-action="collapse-all">たたむ</button>
+    </div>
+    <div class="help-overlay" data-help-overlay hidden>
+      <div class="help-backdrop" data-action="close-help"></div>
+      <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="help-head"><h3 id="help-title"></h3><button type="button" class="help-close" data-action="close-help">×</button></div>
+        <div class="help-body"></div>
+      </div>
+    </div>
   </main></body>`;
 }
 
@@ -181,6 +195,12 @@ function setupDom(url: string): JSDOM {
   // （main.ts は navigator.clipboard を optional chaining で参照するだけで、テスト対象外）。
   // fetch をスタブ（per-day は SAMPLE、per-year は SAMPLE_YEAR）
   g.fetch = fakeFetch(SAMPLE);
+  // storage.ts は globalThis.localStorage を読む。Node 側でグローバルが getter でも置けるよう defineProperty で。
+  Object.defineProperty(globalThis, "localStorage", {
+    value: dom.window.localStorage,
+    configurable: true,
+    writable: true,
+  });
   return dom;
 }
 
@@ -469,9 +489,10 @@ function submit(dom: JSDOM, root: Element): void {
       fame: 100 - i,
     })),
     animals: [
-      { name: "テスト馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 5 },
+      // fame 150 ＝人の最大(100)より上。統合グリッドの先頭に来ることで「fame 降順マージ」を証明する。
+      { name: "テスト馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 150 },
     ],
-    // VTuber は有名人セクション内の推しサブブロックに出る（キャラ一覧にも残る）。
+    // VTuber のサブブロックは廃止＝キャラ一覧のチップにだけ出る。
     characters: [...SAMPLE.characters, { name: "テストV", work: "ホロライブプロダクション", color: "#00aaff" }],
     // 入力年（2000）と一致するものが無い＝⭐ が出ないケースも同時に確認する。
     games: Array.from({ length: 35 }, (_, i) => ({ name: `ゲーム${i}`, year: 1999, platform: "PS2" })),
@@ -493,23 +514,22 @@ function submit(dom: JSDOM, root: Element): void {
   assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 30, "初期は30枚のみ描画");
   const moreBtn = result.querySelector('[data-action="show-more-people"]') as HTMLElement;
   assert(!!moreBtn, "もっと見るボタンがある");
-  assert(moreBtn.textContent!.includes("＋5"), `残り5人表示（実際: ${moreBtn.textContent}）`);
+  assert(moreBtn.textContent!.includes("＋6"), `残りは動物込みで6（実際: ${moreBtn.textContent}）`);
   // 生年非公表（year=0）の表示
   assert([...result.querySelectorAll(".pcard .meta")].some((m) => m.textContent!.includes("生年非公表")), "生年非公表を表示");
-  // 推し・動物は独立セクションではなく有名人セクション内のサブブロック（.oshi-block）
+  // 動物・名馬はサブブロックではなく有名人グリッドに fame 降順で混ざる（完全統合・h3 の区切りなし）
   const peopleSection = [...result.querySelectorAll("details.section")].find((d) =>
     d.querySelector("h2")!.textContent!.includes("同じ誕生日の有名人"),
   )!;
-  const subHeads = [...peopleSection.querySelectorAll("h3")].map((h) => h.textContent!);
-  assert(subHeads.some((t) => t.includes("動物・名馬")), `動物サブブロックが有名人セクション内（実際: ${subHeads.join(" / ")}）`);
-  assert([...peopleSection.querySelectorAll(".pcard .name")].some((n) => n.textContent === "テスト馬"), "動物カードが出る");
+  assert(peopleSection.querySelectorAll("h3").length === 0, "🎤内に h3 の区切りは無い");
+  const firstName = result.querySelector("[data-people-grid] .pcard .name")!;
+  assert(firstName.textContent === "テスト馬", `fame 最大のテスト馬(150)が先頭＝fame 降順マージ（実際: ${firstName.textContent}）`);
   assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("動物・名馬")), "動物の独立セクションは無い");
-  assert(subHeads.some((t) => t.includes("VTuber")), "VTuberサブブロックが有名人セクション内");
-  assert([...peopleSection.querySelectorAll(".chip .cname")].some((c) => c.textContent === "テストV"), "VTuberチップが出る");
-  assert(subHeads.some((t) => t.includes("有名人ぜんぶ")), "サブブロックと並ぶときは主一覧にも見出し");
+  assert(peopleSection.querySelectorAll(".chip").length === 0, "🎤内に VTuber チップは無い（推しサブブロック廃止）");
+  assert([...result.querySelectorAll(".chip .cname")].some((c) => c.textContent === "テストV"), "VTuber はキャラ一覧のチップに出る");
   assert(result.querySelectorAll("[data-people-grid]").length === 1, "data-people-grid は主グリッドのみ");
   assert(result.querySelectorAll("[data-char-list]").length === 1, "data-char-list はキャラセクションのみ");
-  assert(peopleSection.querySelector(".count")!.textContent === "36件", "件数は有名人35＋動物1の合算（推しは数えない）");
+  assert(peopleSection.querySelector(".count")!.textContent === "36件", "件数は有名人35＋動物1の合算");
   // 年データ 404 のときは「生まれた年」セクションごと非表示（壊れない）
   assert(![...result.querySelectorAll("h2")].some((h) => h.textContent!.includes("生まれた年")), "年データ無しなら年セクションは出ない");
 
@@ -517,7 +537,7 @@ function submit(dom: JSDOM, root: Element): void {
   // 展開は非同期（日別ページでは fetch を挟むため more.ts が Promise を await する）。
   await tick();
   await tick();
-  assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 35, "クリックで35枚に増える");
+  assert(result.querySelectorAll(".people-grid[data-people-grid] .pcard").length === 36, "クリックで動物込み36枚に増える");
   assert(!result.querySelector('[data-action="show-more-people"]'), "ボタンは消える");
 
   // ゲームも同じ流儀。入力年に一致するソフトが無いので ⭐ ブロックは出ない。
@@ -530,6 +550,109 @@ function submit(dom: JSDOM, root: Element): void {
   assert(result.querySelectorAll("[data-games-list] .grow").length === 35, "クリックで35本に増える");
   assert(!result.querySelector('[data-action="show-more-games"]'), "ゲームのボタンは消える");
   console.log("[dom] もっと見る遅延描画 OK");
+}
+
+// ---- 5) 本日ボタン・？一覧オーバーレイ・追従ボタン（たたむ/トップへ） ----
+{
+  const dom = setupDom("https://example.com/samesaengil/");
+  const { boot } = await import("../src/app/main");
+  const root = dom.window.document.getElementById("app")!;
+  boot(root as unknown as HTMLElement);
+
+  // 本日ボタン: フォームに今日が入るだけ（診断しない・URL も書かない）
+  const todayBtn = root.querySelector('[data-action="set-today"]') as HTMLElement;
+  todayBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  const now = new Date();
+  assert((root.querySelector("#in-year") as HTMLSelectElement).value === String(now.getFullYear()), "本日: 年");
+  assert((root.querySelector("#in-month") as HTMLSelectElement).value === String(now.getMonth() + 1), "本日: 月");
+  assert((root.querySelector("#in-day") as HTMLSelectElement).value === String(now.getDate()), "本日: 日");
+  assert(root.querySelector("#result")!.innerHTML === "", "本日ボタンでは診断しない");
+  assert(dom.window.location.search === "", "本日ボタンでは URL を書かない");
+
+  // 診断してから「？」一覧を開く
+  setSelect(root, "#in-year", "1995");
+  setSelect(root, "#in-month", "3");
+  setSelect(root, "#in-day", "15");
+  submit(dom, root);
+  await tick();
+  await tick();
+  const result = root.querySelector("#result")!;
+  assert(result.querySelectorAll('[data-action="almanac-help"]').length === 8, "？ボタンは8項目");
+  const overlay = root.querySelector("[data-help-overlay]")!;
+  assert(overlay.hasAttribute("hidden"), "オーバーレイは初期非表示");
+  const zodiacBtn = result.querySelector('[data-action="almanac-help"][data-topic="zodiac"]') as HTMLElement;
+  zodiacBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  assert(!overlay.hasAttribute("hidden"), "？クリックでオーバーレイが開く");
+  assert(root.querySelector("#help-title")!.textContent!.includes("星座"), "タイトルに星座");
+  const helpRows = [...overlay.querySelectorAll(".help-row")];
+  assert(helpRows.length === 12, `星座一覧は12行（実際: ${helpRows.length}）`);
+  const meRow = helpRows.find((r) => r.classList.contains("is-me"));
+  assert(!!meRow && meRow.textContent!.includes("うお座"), "3/15 はうお座の行がハイライト");
+  // 背景クリックで閉じる
+  (overlay.querySelector(".help-backdrop") as HTMLElement).dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  assert(overlay.hasAttribute("hidden"), "背景クリックで閉じる");
+  // キリ番一覧（15行・次のキリ番がハイライト）→ Escape で閉じる
+  const msBtn = result.querySelector('[data-action="almanac-help"][data-topic="milestone"]') as HTMLElement;
+  msBtn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  assert([...overlay.querySelectorAll(".help-row")].length === 15, "キリ番一覧は15行");
+  assert(!!overlay.querySelector(".help-row.is-me"), "次のキリ番がハイライト");
+  dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert(overlay.hasAttribute("hidden"), "Escape で閉じる");
+
+  // たたむ: 開いている details を全部閉じる（.section に限らずネストの chart-list も）
+  assert(result.querySelectorAll("details[open]").length >= 2, "初期展開セクションがある");
+  (root.querySelector('[data-action="collapse-all"]') as HTMLElement).dispatchEvent(
+    new dom.window.Event("click", { bubbles: true }),
+  );
+  assert(result.querySelectorAll("details[open]").length === 0, "たたむで全部閉じる");
+  // トップへ: throw しない（jsdom は scrollTo 未実装＝try/catch されていること）
+  (root.querySelector('[data-action="scroll-top"]') as HTMLElement).dispatchEvent(
+    new dom.window.Event("click", { bubbles: true }),
+  );
+  console.log("[dom] 本日・？一覧・追従ボタン OK");
+}
+
+// ---- 6) localStorage: 前回値の復元（入力のみ）と診断時の保存 ----
+{
+  const dom = setupDom("https://example.com/samesaengil/");
+  dom.window.localStorage.setItem("samesaengil:lastInput", "2003-12-24");
+  const { boot } = await import("../src/app/main");
+  const root = dom.window.document.getElementById("app")!;
+  boot(root as unknown as HTMLElement);
+  await tick();
+  assert((root.querySelector("#in-year") as HTMLSelectElement).value === "2003", "前回値から年を復元");
+  assert((root.querySelector("#in-month") as HTMLSelectElement).value === "12", "前回値から月を復元");
+  assert((root.querySelector("#in-day") as HTMLSelectElement).value === "24", "前回値から日を復元");
+  assert(root.querySelector("#result")!.innerHTML === "", "復元は入力のみ＝診断しない");
+  assert(dom.window.location.search === "", "復元では URL を書かない");
+
+  // 診断すると保存される（診断のたびに上書き）
+  submit(dom, root);
+  await tick();
+  await tick();
+  assert(dom.window.localStorage.getItem("samesaengil:lastInput") === "2003-12-24", "診断で保存される");
+  setSelect(root, "#in-year", "1995");
+  setSelect(root, "#in-month", "3");
+  setSelect(root, "#in-day", "15");
+  submit(dom, root);
+  await tick();
+  await tick();
+  assert(dom.window.localStorage.getItem("samesaengil:lastInput") === "1995-03-15", "診断のたびに上書き保存");
+  console.log("[dom] localStorage 保存/復元 OK");
+}
+
+// ---- 7) localStorage と ?d= が食い違えば ?d= が勝つ ----
+{
+  const dom = setupDom("https://example.com/samesaengil/?d=1995-03-15");
+  dom.window.localStorage.setItem("samesaengil:lastInput", "2000-01-01");
+  const { boot } = await import("../src/app/main");
+  const root = dom.window.document.getElementById("app")!;
+  boot(root as unknown as HTMLElement);
+  await tick();
+  await tick();
+  assert((root.querySelector("#in-year") as HTMLSelectElement).value === "1995", "?d= が localStorage より優先");
+  assert(!!root.querySelector("#result .result-head"), "?d= は従来どおり即描画");
+  console.log("[dom] ?d= 優先 OK");
 }
 
 console.log("\n✅ DOM smoke test passed");

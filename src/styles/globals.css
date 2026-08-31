@@ -168,8 +168,20 @@ a:hover {
   transform: translateY(0);
 }
 .bday-form .go-row {
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
   margin-top: 16px;
+}
+/* 「📅 本日」＝.btn の白抜き版（.btn より後に定義して上書き） */
+.btn-sub {
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.btn-sub:hover {
+  color: var(--accent-strong);
+  background: var(--surface-2);
 }
 
 /* ---- 結果ヘッダ（◯月◯日生まれ） ---- */
@@ -695,17 +707,6 @@ a.anniv:hover {
   min-width: 46px;
 }
 
-/* ---- 有名人セクション内のサブブロック（推し・全員一覧・動物） ---- */
-.oshi-block + .oshi-block {
-  margin-top: 20px;
-}
-.oshi-block h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-muted);
-}
-
 /* ---- 同じ年に生まれた有名人 ---- */
 .year-people-block + .year-people-block {
   margin-top: 20px;
@@ -934,4 +935,167 @@ body {
 /* ページ内アンカー遷移時に固定バーが飛び先を隠さないように */
 html {
   scroll-padding-bottom: calc(48px + env(safe-area-inset-bottom));
+}
+
+/* ---- 暦項目の「？」（一覧オーバーレイを開く小ボタン） ---- */
+.fact-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  position: relative;
+}
+/* 見た目は 16px のままヒット領域だけ 28px 確保（バックリンクバーと同じ流儀） */
+.fact-help::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+.fact-help:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+
+/* ---- 暦の一覧オーバーレイ（？で開く。showModal 不使用＝jsdom で動かすため） ---- */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50; /* バックリンクバー(40)・追従ボタン(30)より上 */
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.help-overlay[hidden] {
+  display: none; /* display:grid が hidden 属性に勝ってしまうので明示が必須 */
+}
+.help-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(33, 37, 41, 0.45);
+}
+.help-dialog {
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--radius);
+  width: min(480px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  padding: 16px 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.help-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.help-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.help-close:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+.help-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 14px;
+}
+.help-row:first-child {
+  border-top: none;
+}
+.help-row .hl {
+  font-weight: 600;
+  flex: none;
+}
+.help-row .hv {
+  color: var(--text-muted);
+}
+.help-row.is-me {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+}
+.help-row.is-me + .help-row {
+  border-top: none; /* is-me の枠線と罫線を二重にしない */
+}
+.help-row .me-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* ---- 追従ボタン（トップへ・たたむ）。バックリンクバー(48px, z-index:40)の上に置く ---- */
+#result:empty + .float-nav {
+  display: none; /* 診断前は出さない */
+}
+.float-nav {
+  position: fixed;
+  right: 16px;
+  bottom: calc(60px + env(safe-area-inset-bottom)); /* バー48px + 12px */
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.float-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.float-btn:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
 }

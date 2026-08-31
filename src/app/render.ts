@@ -30,7 +30,7 @@ import {
   zodiacOf,
   type YMD,
 } from "../lib/almanac";
-import { kpopOf, vtubersOf } from "../lib/oshi";
+import type { HelpTopic } from "./help";
 
 export function esc(s: string): string {
   return s
@@ -80,11 +80,11 @@ export function summaryHtml(input: YMD, today: YMD): string {
 
   const facts: Fact[] = [
     { k: "いまの年齢", v: age >= 0 ? `${age}歳` : "—", sub: wareki ? `${wareki.label}生まれ` : undefined },
-    { k: "星座", v: `${z.emoji} ${z.name}`, sub: z.range },
-    { k: "干支", v: `${eto.emoji} ${eto.name}年`, sub: `${eto.animal}` },
-    { k: "誕生石", v: stone },
-    { k: "誕生花（月）", v: flower.flower, sub: flower.meaning },
-    { k: "世代", v: gen || "—" },
+    { k: "星座", v: `${z.emoji} ${z.name}`, sub: z.range, help: "zodiac" },
+    { k: "干支", v: `${eto.emoji} ${eto.name}年`, sub: `${eto.animal}`, help: "eto" },
+    { k: "誕生石", v: stone, help: "stone" },
+    { k: "誕生花（月）", v: flower.flower, sub: flower.meaning, help: "flower" },
+    { k: "世代", v: gen || "—", help: "generation" },
   ];
 
   return section("✨", "あなたの誕生日プロフィール", factsGrid(facts), undefined, true);
@@ -107,9 +107,10 @@ export function funFactsHtml(input: YMD, today: YMD): string {
       k: "次のキリ番記念日",
       v: next ? `${comma(next.days)}日目` : "—",
       sub: next ? `${next.date.year}/${next.date.month}/${next.date.day}・あと${comma(next.daysUntil)}日` : undefined,
+      help: "milestone",
     },
-    { k: "数秘（ライフパス）", v: String(life.number), sub: life.label },
-    { k: "九星（本命星）", v: kyusei.star, sub: `五行は「${kyusei.element}」` },
+    { k: "数秘（ライフパス）", v: String(life.number), sub: life.label, help: "lifepath" },
+    { k: "九星（本命星）", v: kyusei.star, sub: `五行は「${kyusei.element}」`, help: "kyusei" },
   ];
   return section("🔮", "誕生日の小ネタ", factsGrid(facts), undefined, true);
 }
@@ -118,21 +119,26 @@ interface Fact {
   k: string;
   v: string;
   sub?: string;
+  /** 「？」で一覧オーバーレイを開く暦項目（タイトル・中身の単一ソースは app/help.ts）。 */
+  help?: HelpTopic;
 }
 
 /** 3桁区切り（toLocaleString は環境で揺れるので自前）。 */
-function comma(n: number): string {
+export function comma(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function factsGrid(facts: Fact[]): string {
   const cells = facts
-    .map(
-      (f) =>
-        `<div class="fact"><div class="k">${esc(f.k)}</div><div class="v">${esc(f.v)}</div>${
-          f.sub ? `<div class="sub">${esc(f.sub)}</div>` : ""
-        }</div>`,
-    )
+    .map((f) => {
+      // topic は HelpTopic 型で閉じた固定文字列なので esc 不要（ラベルはデータ扱いで esc）。
+      const helpBtn = f.help
+        ? `<button type="button" class="fact-help" data-action="almanac-help" data-topic="${f.help}" aria-haspopup="dialog" aria-label="${esc(f.k)}の一覧を見る">？</button>`
+        : "";
+      return `<div class="fact"><div class="k">${esc(f.k)}${helpBtn}</div><div class="v">${esc(f.v)}</div>${
+        f.sub ? `<div class="sub">${esc(f.sub)}</div>` : ""
+      }</div>`;
+    })
     .join("");
   return `<div class="summary-grid">${cells}</div>`;
 }
@@ -218,33 +224,30 @@ function chartListHtml(year: YearData, song: ChartWeek | null): string {
 const PEOPLE_VISIBLE = 30;
 
 /**
- * 有名人セクション（🎤）。推し（K-POP/VTuber）と動物・名馬は独立セクションではなく
- * この中のサブブロック（.oshi-block）——順序は 推し → 全員一覧 → 動物。
- * 件数バッジは 人＋動物 の合算（推しは people/characters からの再カット＝重複なので数えない）。
+ * 🎤一覧の並び＝人と動物・名馬を fame 降順で1グリッドに統合（サブブロック・h3 は廃止）。
+ * どちらの配列も fame 降順ソート済み＋安定ソートなので、同 fame は人が先のまま混ざる。
+ * 「もっと見る」（main.ts の lastPeople）も必ずこの関数を通した同じ配列を使うこと
+ * （peers.ts の exact と同じ「render と main で同じ切り方を再現する」規範）。
  */
-export function peopleHtml(people: Person[], chars: Character[], animals: Person[]): string {
-  const oshi = oshiBlocksHtml(people, chars);
-  const animalsBlock = animalsBlockHtml(animals);
-  const hasSubBlocks = !!(oshi || animalsBlock);
-  if (people.length === 0 && !hasSubBlocks) {
+export function allBirthdayPeople(people: Person[], animals: Person[]): Person[] {
+  return [...people, ...animals].sort((a, b) => (b.fame ?? 0) - (a.fame ?? 0));
+}
+
+/** 有名人セクション（🎤）。allBirthdayPeople 済み（動物込み）の配列を受ける。 */
+export function peopleHtml(all: Person[]): string {
+  if (all.length === 0) {
     return section("🎤", "同じ誕生日の有名人", `<p class="empty">この日のデータが見つかりませんでした。</p>`);
   }
-  let main = "";
-  if (people.length > 0) {
-    const visible = people.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
-    // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
-    const restCount = Math.max(0, people.length - PEOPLE_VISIBLE);
-    const more = restCount
-      ? `<button class="more-btn" data-action="show-more-people">もっと見る（＋${restCount}人）</button>`
-      : "";
-    // data-people-grid はこの主グリッドだけに付ける（more.ts がセクション内で一意に引く前提）。
-    const grid = `<div class="people-grid" data-people-grid>${visible}</div>${more}`;
-    // サブブロックが並ぶときだけ h3 で区分け（単独なら h2 直下の h3 は冗長）。
-    main = hasSubBlocks ? `<div class="oshi-block"><h3>有名人ぜんぶ（${people.length}人）</h3>${grid}</div>` : grid;
-  }
-  const body = `${oshi}${main}${animalsBlock}
+  const visible = all.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
+  // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
+  const restCount = Math.max(0, all.length - PEOPLE_VISIBLE);
+  const more = restCount
+    ? `<button class="more-btn" data-action="show-more-people">もっと見る（＋${restCount}人）</button>`
+    : "";
+  // data-people-grid はこの主グリッドだけに付ける（more.ts がセクション内で一意に引く前提）。
+  const body = `<div class="people-grid" data-people-grid>${visible}</div>${more}
     <p class="credit">顔写真・プロフィール: Wikipedia / Wikimedia Commons（各カードは出典記事にリンク）</p>`;
-  return section("🎤", "同じ誕生日の有名人", body, people.length + animals.length || undefined);
+  return section("🎤", "同じ誕生日の有名人", body, all.length);
 }
 
 /** 「もっと見る」で追加描画する残りカード（先頭 PEOPLE_VISIBLE 件を除く）。 */
@@ -277,38 +280,6 @@ function cardHtml(p: { name: string; nameEn?: string; desc: string; photo: strin
 
 function personCard(p: Person): string {
   return cardHtml(p, p.year > 0 ? `${p.year}年生まれ` : "生年非公表");
-}
-
-/* ---------- 推し（K-POPアイドル・VTuber）——🎤内の先頭サブブロック ---------- */
-const KPOP_VISIBLE = 12;
-const VTUBER_VISIBLE = 24;
-
-/**
- * 有名人一覧とキャラ一覧に埋もれている「推し」を拾い直すハイライト（🎤内のサブブロック）。
- * 元の一覧からは除いていないので、全件はそちらで見られる。空なら ""。
- */
-function oshiBlocksHtml(people: Person[], chars: Character[]): string {
-  const kpop = kpopOf(people);
-  const vtubers = vtubersOf(chars);
-  if (kpop.length === 0 && vtubers.length === 0) return "";
-
-  const kpopBlock = kpop.length
-    ? `<div class="oshi-block"><h3>K-POPアイドル${
-        kpop.length > KPOP_VISIBLE ? `（上位${KPOP_VISIBLE}人／${kpop.length}人）` : `（${kpop.length}人）`
-      }</h3><div class="people-grid">${kpop.slice(0, KPOP_VISIBLE).map(personCard).join("")}</div></div>`
-    : "";
-
-  const vtuberBlock = vtubers.length
-    ? `<div class="oshi-block"><h3>VTuber${
-        vtubers.length > VTUBER_VISIBLE ? `（先頭${VTUBER_VISIBLE}人／${vtubers.length}人）` : `（${vtubers.length}人）`
-      }</h3><div class="char-list">${vtubers.slice(0, VTUBER_VISIBLE).map((c) => charChip(c)).join("")}</div>${
-        vtubers.length > VTUBER_VISIBLE
-          ? `<p class="credit">残りは「同じ誕生日のキャラ」の一覧に含まれています。</p>`
-          : ""
-      }</div>`
-    : "";
-
-  return `${kpopBlock}${vtuberBlock}`;
 }
 
 /* ---------- 同じ学年の有名人 ---------- */
@@ -369,13 +340,6 @@ export function yearPeopleMoreHtml(people: YearPerson[], cat: string): string {
     .slice(YEAR_PEOPLE_VISIBLE)
     .map(yearPersonCard)
     .join("");
-}
-
-/* ---------- 動物・名馬——🎤内の末尾サブブロック ---------- */
-function animalsBlockHtml(animals: Person[]): string {
-  if (!animals || animals.length === 0) return ""; // 動物がいない日／旧データはブロックごと非表示
-  const cards = animals.map((a) => personCard(a)).join("");
-  return `<div class="oshi-block"><h3>🐎 動物・名馬（${animals.length}件）</h3><div class="people-grid">${cards}</div></div>`;
 }
 
 /* ---------- フィクションキャラ ---------- */
@@ -570,7 +534,7 @@ export function resultHtml(
     bornYearHtml(input, year) +
     // 記念日は飲み会ネタとして鮮度が高いのに、数百件のキャラ一覧の下だと誰も辿り着けないのでここに置く。
     anniversaryHtml(input, day.anniversaries, day.kinenbi, day.events) +
-    peopleHtml(day.people, day.characters, day.animals) +
+    peopleHtml(allBirthdayPeople(day.people, day.animals)) +
     charactersHtml(day.characters) +
     gamesHtml(input, day.games) +
     sameYearHtml(input, day, cohort) +

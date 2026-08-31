@@ -35,10 +35,28 @@ const defaultYear = 2000;
       </div>
       <div class="go-row">
         <button class="btn" type="submit" data-action="diagnose">🎉 調べる</button>
+        <button class="btn btn-sub" type="button" data-action="set-today">📅 本日</button>
       </div>
     </form>
 
     <div id="result" aria-live="polite"></div>
+    <!-- 追従ボタン。#result の直後が必須（CSS の #result:empty + .float-nav で診断前は非表示） -->
+    <div class="float-nav">
+      <button type="button" class="float-btn" data-action="scroll-top" aria-label="ページの先頭へ戻る">↑</button>
+      <button type="button" class="float-btn" data-action="collapse-all" aria-label="開いているセクションをすべて閉じる">たたむ</button>
+    </div>
+    <!-- ？ボタンの一覧オーバーレイの器（中身は app/help.ts が開くたびに組み立てる）。
+         domtest の appHtml() と二重定義なので、ここを変えたら scripts/domtest.ts 側も揃えること。 -->
+    <div class="help-overlay" data-help-overlay hidden>
+      <div class="help-backdrop" data-action="close-help"></div>
+      <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="help-head">
+          <h3 id="help-title"></h3>
+          <button type="button" class="help-close" data-action="close-help" aria-label="閉じる">×</button>
+        </div>
+        <div class="help-body"></div>
+      </div>
+    </div>
     <noscript>このサイトの利用には JavaScript が必要です。</noscript>
   </main>
 
