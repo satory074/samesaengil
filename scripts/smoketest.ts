@@ -6,6 +6,7 @@
 // 5) spotify（曲の照合・ジャケット選択・キャッシュ互換読み）
 // 6) kinenbi / anniv（日本記念日協会のパースと Wikipedia とのマージ）
 // 7) games（機種別「ゲームタイトル一覧」のパースと、⭐ 生まれた日ちょうどの切り分け）
+// 8) nico（ミリオン動画の JST 日付・サムネ URL の復元・⭐ の切り分け）
 import {
   BIRTH_FLOWERS,
   BIRTHSTONES,
@@ -70,9 +71,11 @@ import {
 } from "./sources/jawikiGameList";
 import { normalizeTitle, parseSteamDate, titlesMatch } from "./sources/steamStore";
 import { coverUrl, exactGamesOf, gameLink, withoutExactGames } from "../src/lib/games";
+import { exactNicoOf, nicoThumbUrl, nicoWatchUrl, viewsLabel, withoutExactNico } from "../src/lib/nicovideo";
+import { thumbTokenOf, ymdOfStartTime } from "./sources/nicoSnapshot";
 import { pickCover as pickIgdbCover } from "./sources/igdb";
 import { initials } from "../src/app/render";
-import type { Game, Person, YearData, YearPerson } from "../src/lib/types";
+import type { Game, NicoVideo, Person, YearData, YearPerson } from "../src/lib/types";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -783,6 +786,44 @@ function assert(cond: boolean, msg: string): void {
     "名前一致は年だけの一致より優先",
   );
   console.log("[games/igdb] OK");
+}
+
+// ---- ミリオン動画（src/lib/nicovideo.ts / scripts/sources/nicoSnapshot.ts）----
+// ここで守りたい不変条件は 3 つだけ:
+//   (1) 投稿日が JST のままであること（UTC 変換すると 1日ズレる＝別人の誕生日に出る）
+//   (2) 保存したトークンから API が返したサムネ URL を完全に復元できること（1文字違えば 404）
+//   (3) ⭐ に出した動画が月日一覧に二重で出ないこと
+{
+  // (1) 00:00〜09:00 JST 投稿は UTC に直すと前日になる。Date に通していたら落ちるケース。
+  assert(new Date("2009-10-27T03:13:22+09:00").getUTCDate() === 26, "前提: UTC に直すと前日になる時刻を使っている");
+  const early = ymdOfStartTime("2009-10-27T03:13:22+09:00");
+  assert(early?.month === 10 && early?.day === 27, `JST の日付のまま（実際: ${JSON.stringify(early)}）`);
+  assert(ymdOfStartTime("") === null, "壊れた startTime は null");
+
+  // (2) API の thumbnailUrl → トークン → URL の往復。旧形式・新形式・so 系（ディレクトリ番号が
+  //     contentId と違う）の 3 系統すべてで、元の URL と 1 文字も違わないこと。
+  const round = (id: string, url: string): string =>
+    nicoThumbUrl({ id, title: "t", year: 2009, man: 100, ...(thumbTokenOf(id, url) ? { thumb: thumbTokenOf(id, url) } : {}) });
+  for (const [id, url] of [
+    ["sm8628149", "https://nicovideo.cdn.nimg.jp/thumbnails/8628149/8628149"],
+    ["sm43708803", "https://nicovideo.cdn.nimg.jp/thumbnails/43708803/43708803.68284955"],
+    ["so30413239", "https://nicovideo.cdn.nimg.jp/thumbnails/32537080/32537080"],
+  ] as const) {
+    assert(round(id, url) === url, `${id}: サムネ URL を復元できる（実際: ${round(id, url)}）`);
+  }
+  assert(thumbTokenOf("sm8628149", "https://nicovideo.cdn.nimg.jp/thumbnails/8628149/8628149") === undefined, "既定形のトークンは持たない");
+
+  // (3) ⭐ の切り分け（render.ts と main.ts が同じ切り方を再現する前提の土台）。
+  const v = (id: string, year: number): NicoVideo => ({ id, title: id, year, man: 100 });
+  const videos = [v("sm1", 2009), v("sm2", 1995), v("sm3", 1995)];
+  const exact = exactNicoOf(videos, 1995);
+  assert(exact.length === 2, `1995年投稿は2本（実際: ${exact.length}）`);
+  const rest = withoutExactNico(videos, exact);
+  assert(rest.length === 1 && rest[0].id === "sm1", "⭐ に出したものは一覧から除く");
+  assert(withoutExactNico(videos, []).length === 3, "⭐ が空なら全件そのまま");
+  assert(nicoWatchUrl(videos[0]) === "https://www.nicovideo.jp/watch/sm1", "watch URL を ID から組み立てる");
+  assert(viewsLabel(3143) === "3143万再生", "再生数は万単位の表示");
+  console.log("[nico/lib] OK");
 }
 
 console.log("\n✅ smoketest passed");

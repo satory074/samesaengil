@@ -83,6 +83,31 @@ export interface Game {
   cover?: string;
 }
 
+/**
+ * その月日に投稿された、ミリオン（100万再生以上）達成のニコニコ動画。
+ * 出所はニコニコ動画「スナップショット検索API v2」。取込は scripts/importNicovideos.ts
+ * → src/data/nicovideos.json（Game と同じ「取込済み JSON を読むだけ」の系統）。
+ */
+export interface NicoVideo {
+  /** 動画 ID（"sm9" / "so30413239"）。watch URL・サムネ URL の素で、**URL は持たない**（Game.title と同じ規範）。 */
+  id: string;
+  title: string;
+  /** 投稿年。月日は per-day ファイル名で決まるので持たない（Game と同じ）。 */
+  year: number;
+  /**
+   * 再生数（万単位・切り捨て）。100 = 100万再生。
+   * 生値を持たないのは、表示が「3143万再生」で生値を要さないのに、週次 cron のたびに
+   * 全行が git の差分になるため（万なら年に数回しか動かない）。
+   */
+  man: number;
+  /**
+   * サムネイルのトークン（例 "43708803.68284955"）。既定形（id の数字部）のときは欠落。
+   * 新形式はサフィックスが無いと 404 になるので導出できない。URL の組み立ては
+   * src/lib/nicovideo.ts の nicoThumbUrl()。
+   */
+  thumb?: string;
+}
+
 /** 1 日ぶんの集約データ（public/data/days/MM-DD.json）。 */
 export interface DayData {
   /** "MM-DD"。 */
@@ -107,6 +132,11 @@ export interface DayData {
    * GAMES_ONLY=1 の高速パスで差し替えられる。
    */
   games: Game[];
+  /**
+   * その月日に投稿されたミリオン動画（全年ぶん）。再生数の多い順 → 年の新しい順。
+   * games と同じ系統で、NICO_ONLY=1 の高速パスで差し替えられる。
+   */
+  nicovideos: NicoVideo[];
 }
 
 /** その年のできごと（日付つき）。 */

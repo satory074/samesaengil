@@ -60,6 +60,13 @@ jobs:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
 
+      # ミリオン（100万再生以上）達成のニコニコ動画。キー不要（スナップショット検索API v2）。
+      # aggregate より前に回して、直後の aggregate が per-day JSON の nicovideos キーへ反映する。
+      # 年ごとに取り直し、失敗した年だけ前回値を維持する（空上書きしない）。
+      - name: Import nicovideos
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm run import:nico
+
       - name: Aggregate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run aggregate
@@ -80,7 +87,7 @@ jobs:
         run: |
           git config user.name "data-bot"
           git config user.email "actions@github.com"
-          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json src/data/games.json src/data/steam.json src/data/igdb.json
+          git add public/data src/data/state.json src/data/spotify.json src/data/kinenbi.json src/data/games.json src/data/steam.json src/data/igdb.json src/data/nicovideos.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh birthday data"
             git push

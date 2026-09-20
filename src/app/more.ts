@@ -1,6 +1,6 @@
 // 「もっと見る」の遅延描画（有名人・キャラは1日に数百〜千件あるので初期 DOM を軽く保つ）。
-import type { Character, Game, Person, YearPerson } from "../lib/types";
-import { charactersMoreHtml, gamesMoreHtml, peopleMoreHtml, yearPeopleMoreHtml } from "./render";
+import type { Character, Game, NicoVideo, Person, YearPerson } from "../lib/types";
+import { charactersMoreHtml, gamesMoreHtml, nicoMoreHtml, peopleMoreHtml, yearPeopleMoreHtml } from "./render";
 
 /** 全件の取得元（クリック時に評価する＝描画済みの配列を返す）。 */
 export interface MoreSource {
@@ -10,6 +10,8 @@ export interface MoreSource {
   yearPeople: () => YearPerson[];
   /** 発売ゲーム（⭐ 生まれた日ちょうどに出したものを除いたもの＝描画に使ったのと同じ配列）。 */
   games: () => Game[];
+  /** ミリオン動画（⭐ 生まれた日ちょうどに出したものを除いたもの＝描画に使ったのと同じ配列）。 */
+  nico: () => NicoVideo[];
 }
 
 /** root に click 委譲を 1 つだけ張る。 */
@@ -32,6 +34,10 @@ export function wireMoreButtons(root: HTMLElement, src: MoreSource): void {
       const list = section?.querySelector("[data-games-list]");
       const games = src.games();
       if (list && games.length) list.insertAdjacentHTML("beforeend", gamesMoreHtml(games));
+    } else if (action === "show-more-nico") {
+      const list = section?.querySelector("[data-nico-list]");
+      const videos = src.nico();
+      if (list && videos.length) list.insertAdjacentHTML("beforeend", nicoMoreHtml(videos));
     } else if (action === "show-more-year-people") {
       // 同い年セクションはカテゴリごとにグリッドが分かれているので data-cat で対応づける。
       const cat = target.dataset.cat ?? "";

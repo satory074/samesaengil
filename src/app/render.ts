@@ -1,8 +1,20 @@
 // 結果セクションの HTML 文字列ビルダ群（DOM への流し込みは main.ts）。
 // すべてのデータ由来テキストは esc() でエスケープする。
-import type { Anniversary, Character, ChartWeek, DayData, DayEvent, Game, Person, YearData, YearPerson } from "../lib/types";
+import type {
+  Anniversary,
+  Character,
+  ChartWeek,
+  DayData,
+  DayEvent,
+  Game,
+  NicoVideo,
+  Person,
+  YearData,
+  YearPerson,
+} from "../lib/types";
 import { mergeAnniversaries } from "../lib/anniv";
 import { coverUrl, exactGamesOf, gameLink, withoutExactGames } from "../lib/games";
+import { exactNicoOf, nicoThumbUrl, nicoWatchUrl, viewsLabel, withoutExactNico } from "../lib/nicovideo";
 import { eventOnBirthday, eventsForMonth, songForBirthday, spotifyUrl } from "../lib/year";
 import {
   CAT_LABELS,
@@ -490,6 +502,67 @@ export function gamesMoreHtml(games: Game[]): string {
   return games.slice(GAMES_VISIBLE).map(gameRow).join("");
 }
 
+/* ---------- 同じ誕生日に投稿されたニコニコ動画（ミリオン達成） ---------- */
+/** 月日一覧の初期表示件数。これを超える分は「もっと見る」で展開（ゲームと同じ規範）。 */
+const NICO_VISIBLE = 30;
+
+function nicoRow(v: NicoVideo): string {
+  // サムネは「器（.n-art）を常に出し、あれば img を重ねる」——削除された動画はサムネが
+  // 404 になるので onerror で img が消えて 📺 に戻る（.g-art / .cw-art と同じ流儀）。
+  const thumb = nicoThumbUrl(v);
+  const img = thumb
+    ? `<img class="n-img" src="${esc(thumb)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+    : "";
+  // ゲーム行（サムネ＋1行）と違い、動画タイトルは平均60バイト・【】つきで長い。同じ1行構成だと
+  // スマホ幅でタイトル列が 92px しか取れず 10行に折り返す（実測: 1行あたり 210px）。
+  // そこで「サムネ＋（タイトル2行クランプ／年・再生数）」の縦積みにする＝動画一覧の一般的な形。
+  const label =
+    `<span class="n-art">${img}</span><span class="n-body"><span class="n-title">${esc(v.title)}</span>` +
+    `<span class="n-meta"><span class="n-year">${v.year}年</span><span class="n-views">${esc(
+      viewsLabel(v.man),
+    )}</span></span></span>`;
+  // title 属性はクランプで隠れた分をデスクトップのホバーで読めるようにするため。
+  return `<li class="nrow"><a href="${esc(nicoWatchUrl(v))}" target="_blank" rel="noopener" title="${esc(
+    v.title,
+  )}">${label}</a></li>`;
+}
+
+/**
+ * その月日に投稿されたミリオン（100万再生以上）動画。生年まで一致するもの（⭐）を先頭に出し、
+ * 残りは再生数順で先頭 NICO_VISIBLE 件＋「もっと見る」（gamesHtml と同型）。
+ * ニコニコ動画のサービス開始は 2006年12月なので、それ以前生まれには ⭐ が構造的に出ない。
+ */
+export function nicoHtml(input: YMD, videos: NicoVideo[]): string {
+  if (videos.length === 0) return "";
+  const exact = exactNicoOf(videos, input.year);
+  const rest = withoutExactNico(videos, exact);
+
+  const exactBlock = exact.length
+    ? `<div class="nico-block exact"><h3>⭐ あなたが生まれた日に投稿（${exact.length}本）</h3><ol class="nico-list">${exact
+        .map(nicoRow)
+        .join("")}</ol></div>`
+    : "";
+
+  const visible = rest.slice(0, NICO_VISIBLE).map(nicoRow).join("");
+  const restCount = Math.max(0, rest.length - NICO_VISIBLE);
+  const more = restCount
+    ? `<button class="more-btn" data-action="show-more-nico">もっと見る（＋${restCount}本）</button>`
+    : "";
+  const restBlock = rest.length
+    ? `<div class="nico-block"><h3>${input.month}月${input.day}日に投稿されたミリオン動画${
+        restCount ? `（${rest.length}本中${NICO_VISIBLE}本）` : `（${rest.length}本）`
+      }</h3><ol class="nico-list" data-nico-list>${visible}</ol>${more}</div>`
+    : "";
+
+  const credit = `<p class="credit">出典: <a href="https://www.nicovideo.jp/" target="_blank" rel="noopener">ニコニコ動画</a> スナップショット検索API v2（100万再生以上・再生数の多い順。サービス開始は2006年12月）</p>`;
+  return section("📺", "同じ誕生日に投稿されたニコニコ動画", `${exactBlock}${restBlock}${credit}`, videos.length);
+}
+
+/** 「もっと見る」で追加描画する残り（⭐を除いた一覧の先頭 NICO_VISIBLE 件より後ろ）。 */
+export function nicoMoreHtml(videos: NicoVideo[]): string {
+  return videos.slice(NICO_VISIBLE).map(nicoRow).join("");
+}
+
 /* ---------- 共有 ---------- */
 export function shareHtml(): string {
   return `<div class="share-row">
@@ -537,6 +610,7 @@ export function resultHtml(
     peopleHtml(allBirthdayPeople(day.people, day.animals)) +
     charactersHtml(day.characters) +
     gamesHtml(input, day.games) +
+    nicoHtml(input, day.nicovideos) +
     sameYearHtml(input, day, cohort) +
     shareHtml()
   );

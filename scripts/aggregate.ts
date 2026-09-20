@@ -10,10 +10,11 @@
 //   PHOTOS_ONLY=1 npm run aggregate … 日ページを叩かず、写真の無い人だけ外部ソースで補完して photo を差し替え
 //   KINENBI_ONLY=1 npm run aggregate … Wikipedia を叩かず kinenbi（協会認定記念日）だけ差し替え
 //   GAMES_ONLY=1 npm run aggregate  … Wikipedia を叩かず games（発売されたゲーム＋ジャケ）だけ差し替え
+//   NICO_ONLY=1 npm run aggregate   … Wikipedia を叩かず nicovideos（ミリオン動画）だけ差し替え
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
-import type { Anniversary, Character, DayData, DayEvent, Game, Person } from "../src/lib/types";
+import type { Anniversary, Character, DayData, DayEvent, Game, NicoVideo, Person } from "../src/lib/types";
 import { fetchDayInfo, type JaRawBirth } from "./sources/jawikiDay";
 import { kinenbiUrl, splitKinenbiName, type KinenbiEntry } from "./sources/kinenbiDay";
 import { mapLimit } from "./lib/util";
@@ -225,6 +226,59 @@ function buildGameMap(
         ...(seed.title ? { title: seed.title } : {}),
         ...(seed.appid ? { appid: seed.appid } : {}),
         ...(seed.title && covers.get(seed.title) ? { cover: covers.get(seed.title) } : {}),
+      })),
+    );
+  }
+  return map;
+}
+
+/** ミリオン動画の取込 JSON（src/data/nicovideos.json、コミット済み）の 1 行。 */
+type NicoSeedRow = {
+  id: string;
+  title: string;
+  year: number;
+  month: number;
+  day: number;
+  man: number;
+  thumb?: string;
+};
+
+function readNicoSeeds(): NicoSeedRow[] {
+  const rows = readJson<NicoSeedRow[]>(path.join(ROOT, "src", "data", "nicovideos.json"), []);
+  if (rows.length === 0) {
+    console.warn("[aggregate] src/data/nicovideos.json が空です。先に npm run import:nico を実行してください。");
+  }
+  return rows;
+}
+
+/**
+ * 取込 JSON を MM-DD -> NicoVideo[] にまとめる。実行時 API なし・**純関数**。
+ * ゲームと違って人気の解決（pageviews）が要らないのは、並び替えに使う再生数が
+ * データそのものに入っているため（state.json には一切触らない）。
+ * 並びは 再生数降順 → 年の新しい順 → id。
+ */
+function buildNicoMap(seeds: NicoSeedRow[]): Map<string, NicoVideo[]> {
+  const byDay = new Map<string, Map<string, NicoSeedRow>>();
+  for (const v of seeds) {
+    if (!v.id || !v.title || !v.year || !v.month || !v.day) continue;
+    const key = `${pad(v.month)}-${pad(v.day)}`;
+    const day = byDay.get(key) ?? new Map<string, NicoSeedRow>();
+    byDay.set(key, day);
+    day.set(v.id, v); // id で重複排除（取込が年をまたいで重複させないための保険）
+  }
+
+  const map = new Map<string, NicoVideo[]>();
+  for (const [key, day] of byDay) {
+    const ranked = [...day.values()].sort((a, b) => b.man - a.man || b.year - a.year || a.id.localeCompare(b.id));
+    map.set(
+      key,
+      ranked.map<NicoVideo>((v) => ({
+        id: v.id,
+        title: v.title,
+        year: v.year,
+        man: v.man,
+        // URL ではなくサムネのトークンを持つ（per-day を膨らませないため。types.ts の NicoVideo 参照）。
+        ...(v.thumb ? { thumb: v.thumb } : {}),
       })),
     );
   }
@@ -535,6 +589,28 @@ async function run(): Promise<void> {
     return;
   }
 
+  // 高速適用パス: Wikipedia を叩かず、既存 per-day ファイルの nicovideos だけ差し替える。
+  // import:nico の後、全366日へ数秒で反映するための経路（GAMES_ONLY と同型・冪等）。
+  // src/data/nicovideos.json を [] にしてこれを回せば、動画セクションを全撤去できる。
+  if (process.env.NICO_ONLY) {
+    const nicoMap = buildNicoMap(readNicoSeeds());
+    let updated = 0;
+    let missing = 0;
+    for (const { month, day } of selectDays()) {
+      const key = `${pad(month)}-${pad(day)}`;
+      const filePath = path.join(DAYS_DIR, `${key}.json`);
+      const prev = readJson<DayData | null>(filePath, null);
+      if (!prev) {
+        missing++;
+        continue; // ファイルが無い日はスキップ（まず通常 aggregate が必要）
+      }
+      writeJson(filePath, { ...prev, nicovideos: nicoMap.get(key) ?? [], updatedAt: new Date().toISOString() });
+      updated++;
+    }
+    console.log(`[aggregate] NICO_ONLY 完了: 更新${updated} / 欠落${missing}日`);
+    return;
+  }
+
   // キャラの並び替えに使う「作品の人気」（＝作品記事の年間閲覧数）。人物の fame と同じ仕組み・
   // 同じキャッシュ（state.pages/views）。CHARS_ONLY は Wikipedia を叩かずキャッシュ済みの分だけ使う。
   const fame = await resolveWorkFame(allWorks(), state, charsOnly);
@@ -572,6 +648,11 @@ async function run(): Promise<void> {
   const gameFame = await resolveWorkFame(allGameTitles(gameSeeds), state);
   const gameMap = buildGameMap(gameSeeds, gameFame, canonTitles(gameSeeds, state), readGameCovers());
   console.log(`[aggregate] ゲーム: ${gameSeeds.length}本 / 人気解決 ${[...gameFame.values()].filter((v) => v > 0).length}件`);
+
+  // ミリオン動画も取込済み JSON を読むだけ。並び替えは再生数そのものなので人気解決は不要。
+  const nicoSeeds = readNicoSeeds();
+  const nicoMap = buildNicoMap(nicoSeeds);
+  console.log(`[aggregate] ニコニコ動画: ${nicoSeeds.length}本`);
 
   const single = days.length === 1;
   // 日単位で並列（Wikimedia への礼儀として控えめ）。AGG_CONCURRENCY で上書き可。
@@ -631,6 +712,7 @@ async function run(): Promise<void> {
       events,
       updatedAt: new Date().toISOString(),
       games: gameMap.get(key) ?? [],
+      nicovideos: nicoMap.get(key) ?? [],
     };
     writeJson(filePath, out);
 
@@ -642,7 +724,7 @@ async function run(): Promise<void> {
       ok++;
     }
     if (single) {
-      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length}+協会${out.kinenbi.length} / できごと${events.length} / ゲーム${out.games.length}`);
+      console.log(`  ${key}: 有名人${people.length} / 動物${animals.length} / キャラ${out.characters.length} / 記念日${anniversaries.length}+協会${out.kinenbi.length} / できごと${events.length} / ゲーム${out.games.length} / 動画${out.nicovideos.length}`);
     } else if (done % 20 === 0) {
       console.log(`  …${done}/${days.length}`);
       writeState(state); // 途中保存（落ちてもキャッシュが残る）

@@ -65,6 +65,14 @@ const SAMPLE: DayData = {
     { name: "リンクなしゲーム", year: 1999, platform: "ドリームキャスト" },
     { name: "Steam のゲーム", year: 2016, platform: "Steam", appid: 1 },
   ],
+  // 再生数順で並んでいる前提（aggregate 側で済ませてある）。1995 のものが「⭐ 生まれた日ちょうど」。
+  // サムネは 3 系統（新形式=thumb あり / 旧形式=thumb なし / so 系=ディレクトリ番号が ID と違う）。
+  nicovideos: [
+    { id: "sm8628149", title: "旧形式の動画", year: 2009, man: 3143 },
+    { id: "sm43708803", title: "新形式の動画", year: 2024, man: 1143, thumb: "43708803.68284955" },
+    { id: "sm1995", title: "生まれた日の動画", year: 1995, man: 120 },
+    { id: "so30413239", title: "チャンネル動画", year: 2017, man: 101, thumb: "32537080" },
+  ],
 };
 
 const yp = (name: string, desc: string, day: number): YearPerson => ({
@@ -245,7 +253,7 @@ function submit(dom: JSDOM, root: Element): void {
   assert(openTitles.some((t) => t.includes("誕生日の小ネタ")), "小ネタは初期展開");
   // セクション順（resultHtml が唯一の順序定義。ネストの details.chart-list は .section に非マッチ）
   const sectionTitles = sections.map((d) => d.querySelector("summary h2")!.textContent!);
-  const expectedOrder = ["プロフィール", "小ネタ", "生まれた年", "何の日", "同じ誕生日の有名人", "同じ誕生日のキャラ", "発売されたゲーム", "同じ学年"];
+  const expectedOrder = ["プロフィール", "小ネタ", "生まれた年", "何の日", "同じ誕生日の有名人", "同じ誕生日のキャラ", "発売されたゲーム", "投稿されたニコニコ動画", "同じ学年"];
   const orderIdx = expectedOrder.map((k) => sectionTitles.findIndex((t) => t.includes(k)));
   assert(orderIdx.every((i) => i >= 0), `全セクションが存在（実際: ${sectionTitles.join(" / ")}）`);
   assert(orderIdx.every((i, n) => n === 0 || i > orderIdx[n - 1]), `セクション順（実際: ${sectionTitles.join(" / ")}）`);
@@ -352,6 +360,37 @@ function submit(dom: JSDOM, root: Element): void {
   assert(
     !noCoverRow.querySelector("img.g-img") && !!noCoverRow.querySelector(".g-art"),
     "どちらも無い行は img 不在・器だけ（🎮 プレースホルダ）",
+  );
+
+  // ミリオン動画もゲームと同型（⭐ ブロック／月日一覧／サムネの器は全行）。
+  const exactNicoRows = [...result.querySelectorAll(".nico-block.exact .nrow")];
+  assert(exactNicoRows.length === 1, `⭐ は1本（実際: ${exactNicoRows.length}）`);
+  assert(exactNicoRows[0].textContent!.includes("生まれた日の動画"), "⭐ に生年一致の動画");
+  const nicoRows = [...result.querySelectorAll("[data-nico-list] .nrow")];
+  assert(nicoRows.length === 3, `月日一覧は残り3本（実際: ${nicoRows.length}）`);
+  assert(
+    !nicoRows.some((r) => r.textContent!.includes("生まれた日の動画")),
+    "⭐ に出した動画は月日一覧に重複して出ない",
+  );
+  assert(result.querySelectorAll("[data-nico-list]").length === 1, "data-nico-list は月日一覧のみ");
+  assert(
+    nicoRows[0].querySelector("a")!.getAttribute("href") === "https://www.nicovideo.jp/watch/sm8628149",
+    "再生数最多（3143万）が先頭で、watch URL へリンク",
+  );
+  assert(nicoRows[0].textContent!.includes("3143万再生"), "再生数は万単位で出る");
+  assert(
+    [...result.querySelectorAll(".nico-block .nrow")].every((r) => !!r.querySelector(".n-art")),
+    "全行にサムネの器（.n-art）が出る",
+  );
+  assert(
+    nicoRows.find((r) => r.textContent!.includes("新形式の動画"))!.querySelector("img.n-img")!.getAttribute("src") ===
+      "https://nicovideo.cdn.nimg.jp/thumbnails/43708803/43708803.68284955",
+    "thumb ありはトークンからサムネ URL を組み立てる",
+  );
+  assert(
+    nicoRows[0].querySelector("img.n-img")!.getAttribute("src") ===
+      "https://nicovideo.cdn.nimg.jp/thumbnails/8628149/8628149",
+    "thumb 無しは ID の数字部が既定形",
   );
 
   // 有名人カード（「同じ誕生日の有名人」セクションのグリッド＝data-people-grid に限定して数える）
@@ -496,6 +535,7 @@ function submit(dom: JSDOM, root: Element): void {
     characters: [...SAMPLE.characters, { name: "テストV", work: "ホロライブプロダクション", color: "#00aaff" }],
     // 入力年（2000）と一致するものが無い＝⭐ が出ないケースも同時に確認する。
     games: Array.from({ length: 35 }, (_, i) => ({ name: `ゲーム${i}`, year: 1999, platform: "PS2" })),
+    nicovideos: Array.from({ length: 35 }, (_, i) => ({ id: `sm${i}`, title: `動画${i}`, year: 2009, man: 100 - i })),
   };
   const dom = setupDom("https://example.com/samesaengil/");
   // 年データが無い年（範囲外＝404）でも壊れないことも同時に確認する。
@@ -549,6 +589,15 @@ function submit(dom: JSDOM, root: Element): void {
   await tick();
   assert(result.querySelectorAll("[data-games-list] .grow").length === 35, "クリックで35本に増える");
   assert(!result.querySelector('[data-action="show-more-games"]'), "ゲームのボタンは消える");
+  // ミリオン動画も同じ流儀（render と main.ts が同じ切り方を再現できているかの確認）。
+  assert(!result.querySelector(".nico-block.exact"), "生年一致が無ければ ⭐ ブロックは出ない");
+  assert(result.querySelectorAll("[data-nico-list] .nrow").length === 30, "動画も初期は30本のみ描画");
+  const nicoMore = result.querySelector('[data-action="show-more-nico"]') as HTMLElement;
+  assert(!!nicoMore && nicoMore.textContent!.includes("＋5"), `動画の残り5本表示（実際: ${nicoMore?.textContent}）`);
+  nicoMore.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  await tick();
+  assert(result.querySelectorAll("[data-nico-list] .nrow").length === 35, "クリックで35本に増える");
+  assert(!result.querySelector('[data-action="show-more-nico"]'), "動画のボタンは消える");
   console.log("[dom] もっと見る遅延描画 OK");
 }
 
