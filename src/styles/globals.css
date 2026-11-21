@@ -1206,3 +1206,77 @@ html {
   color: var(--accent-strong);
   border-color: var(--accent-border);
 }
+
+/* ---- 日別ページ /day/MM-DD/ とカレンダー /day/ ---- */
+/* 見出しの「有名人・キャラクター・記念日」は h1 の一部（タイトルと同じ文）だが、日付より一段小さく出す */
+.result-head .date-sub {
+  display: block;
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.day-lead {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.day-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 24px 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.day-nav a {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.cal-month {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 16px 0;
+}
+.cal-month h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 700;
+}
+.cal-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.cal-days a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px; /* タップしやすい大きさ */
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cal-days a:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+/* ---- 日別ページ・カレンダーへの導線（トップのフォーム下 / 結果の末尾） ---- */
+.daylink {
+  text-align: center;
+  margin: 16px 0;
+  font-size: 14px;
+  font-weight: 700;
+}

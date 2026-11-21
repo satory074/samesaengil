@@ -40,8 +40,11 @@ import {
   warekiOf,
   weekdayOf,
   zodiacOf,
+  type MD,
   type YMD,
 } from "../lib/almanac";
+import { dayKeyOf, dayLabel } from "../lib/days";
+import { siteLink } from "../lib/url";
 import type { HelpTopic } from "./help";
 
 export function esc(s: string): string {
@@ -246,9 +249,9 @@ export function allBirthdayPeople(people: Person[], animals: Person[]): Person[]
 }
 
 /** 有名人セクション（🎤）。allBirthdayPeople 済み（動物込み）の配列を受ける。 */
-export function peopleHtml(all: Person[]): string {
+export function peopleHtml(all: Person[], opts: SectionOpts = {}): string {
   if (all.length === 0) {
-    return section("🎤", "同じ誕生日の有名人", `<p class="empty">この日のデータが見つかりませんでした。</p>`);
+    return section("🎤", "同じ誕生日の有名人", `<p class="empty">この日のデータが見つかりませんでした。</p>`, undefined, opts.open);
   }
   const visible = all.slice(0, PEOPLE_VISIBLE).map((p) => personCard(p)).join("");
   // 残りは「もっと見る」クリック時に main.ts が peopleMoreHtml で遅延描画（初期 DOM を軽く保つ）。
@@ -259,7 +262,7 @@ export function peopleHtml(all: Person[]): string {
   // data-people-grid はこの主グリッドだけに付ける（more.ts がセクション内で一意に引く前提）。
   const body = `<div class="people-grid" data-people-grid>${visible}</div>${more}
     <p class="credit">顔写真・プロフィール: Wikipedia / Wikimedia Commons（各カードは出典記事にリンク）</p>`;
-  return section("🎤", "同じ誕生日の有名人", body, all.length);
+  return section("🎤", "同じ誕生日の有名人", body, all.length, opts.open);
 }
 
 /** 「もっと見る」で追加描画する残りカード（先頭 PEOPLE_VISIBLE 件を除く）。 */
@@ -358,9 +361,9 @@ export function yearPeopleMoreHtml(people: YearPerson[], cat: string): string {
 /** 初期表示件数。これを超える分は「もっと見る」で展開（日によっては数百〜千件あるため）。 */
 const CHARS_VISIBLE = 40;
 
-export function charactersHtml(chars: Character[]): string {
+export function charactersHtml(chars: Character[], opts: SectionOpts = {}): string {
   if (chars.length === 0) {
-    return section("🦸", "同じ誕生日のキャラ", `<p class="empty">登録キャラに同じ誕生日はいませんでした。</p>`);
+    return section("🦸", "同じ誕生日のキャラ", `<p class="empty">登録キャラに同じ誕生日はいませんでした。</p>`, undefined, opts.open);
   }
   const visible = charRows(chars.slice(0, CHARS_VISIBLE), null);
   // 残りは「もっと見る」クリック時に main.ts が charactersMoreHtml で遅延描画（初期 DOM を軽く保つ）。
@@ -369,7 +372,7 @@ export function charactersHtml(chars: Character[]): string {
     ? `<button class="more-btn" data-action="show-more-chars">もっと見る（＋${restCount}件）</button>`
     : "";
   const body = `<div class="char-list" data-char-list>${visible}</div>${more}`;
-  return section("🦸", "同じ誕生日のキャラ", body, chars.length);
+  return section("🦸", "同じ誕生日のキャラ", body, chars.length, opts.open);
 }
 
 /**
@@ -418,15 +421,16 @@ function charChip(c: Character, withWork = true): string {
 // 「今日」ではなく選択した誕生日の記念日・できごとなので、見出しに日付を入れる。
 // Wikipedia（anniversaries）と日本記念日協会（kinenbi）は別キーで受けて表示時にマージする。
 export function anniversaryHtml(
-  input: YMD,
+  md: MD,
   anniversaries: Anniversary[],
   kinenbi: Anniversary[],
   events: DayEvent[],
+  opts: SectionOpts = {},
 ): string {
-  const title = `${input.month}月${input.day}日は何の日`;
+  const title = `${dayLabel(md)}は何の日`;
   const merged = mergeAnniversaries(anniversaries, kinenbi);
   if (merged.length === 0 && events.length === 0) {
-    return section("📅", title, `<p class="empty">データが見つかりませんでした。</p>`);
+    return section("📅", title, `<p class="empty">データが見つかりませんでした。</p>`, undefined, opts.open);
   }
   // url あり＝協会の由来ページへ新しいタブでリンク（由来本文はコピーしない）。charChip と同じ分岐流儀。
   const chips = merged
@@ -442,7 +446,7 @@ export function anniversaryHtml(
         .join("")}</ul>`
     : "";
   const body = `${chips ? `<div class="anniv-list">${chips}</div>` : ""}${evs}`;
-  return section("📅", title, body, merged.length || undefined);
+  return section("📅", title, body, merged.length || undefined, opts.open);
 }
 
 /* ---------- 同じ誕生日に発売されたゲーム ---------- */
@@ -470,10 +474,11 @@ function gameRow(g: Game): string {
  * その月日に発売されたゲーム。生年まで一致するもの（⭐）を先頭に出し、
  * 残りは人気（日本語版Wikipedia の年間閲覧数）順で先頭 GAMES_VISIBLE 件＋「もっと見る」。
  * 誕生日と発売日がピタリ一致する確率は 2〜5 割なので、⭐ が無い日でも月日一覧で必ず中身が出る。
+ * opts.year が無い（日別ページ＝年なし）ときは ⭐ ブロックを出さず、全件を月日一覧にする。
  */
-export function gamesHtml(input: YMD, games: Game[]): string {
+export function gamesHtml(md: MD, games: Game[], opts: SectionOpts & { year?: number } = {}): string {
   if (games.length === 0) return "";
-  const exact = exactGamesOf(games, input.year);
+  const exact = opts.year != null ? exactGamesOf(games, opts.year) : [];
   const rest = withoutExactGames(games, exact);
 
   const exactBlock = exact.length
@@ -488,13 +493,13 @@ export function gamesHtml(input: YMD, games: Game[]): string {
     ? `<button class="more-btn" data-action="show-more-games">もっと見る（＋${restCount}本）</button>`
     : "";
   const restBlock = rest.length
-    ? `<div class="game-block"><h3>${input.month}月${input.day}日に発売されたゲーム${
+    ? `<div class="game-block"><h3>${dayLabel(md)}に発売されたゲーム${
         restCount ? `（${rest.length}本中${GAMES_VISIBLE}本）` : `（${rest.length}本）`
       }</h3><ol class="game-list" data-games-list>${visible}</ol>${more}</div>`
     : "";
 
   const credit = `<p class="credit">出典: 日本語版Wikipedia の機種別「ゲームタイトル一覧」／PC は <a href="https://store.steampowered.com/" target="_blank" rel="noopener">Steam</a>（人気＝記事の年間閲覧数の順）</p>`;
-  return section("🎮", "同じ誕生日に発売されたゲーム", `${exactBlock}${restBlock}${credit}`, games.length);
+  return section("🎮", "同じ誕生日に発売されたゲーム", `${exactBlock}${restBlock}${credit}`, games.length, opts.open);
 }
 
 /** 「もっと見る」で追加描画する残り（⭐を除いた一覧の先頭 GAMES_VISIBLE 件より後ろ）。 */
@@ -531,10 +536,11 @@ function nicoRow(v: NicoVideo): string {
  * その月日に投稿されたミリオン（100万再生以上）動画。生年まで一致するもの（⭐）を先頭に出し、
  * 残りは再生数順で先頭 NICO_VISIBLE 件＋「もっと見る」（gamesHtml と同型）。
  * ニコニコ動画のサービス開始は 2006年12月なので、それ以前生まれには ⭐ が構造的に出ない。
+ * opts.year が無い（日別ページ＝年なし）ときは ⭐ ブロックを出さず、全件を月日一覧にする。
  */
-export function nicoHtml(input: YMD, videos: NicoVideo[]): string {
+export function nicoHtml(md: MD, videos: NicoVideo[], opts: SectionOpts & { year?: number } = {}): string {
   if (videos.length === 0) return "";
-  const exact = exactNicoOf(videos, input.year);
+  const exact = opts.year != null ? exactNicoOf(videos, opts.year) : [];
   const rest = withoutExactNico(videos, exact);
 
   const exactBlock = exact.length
@@ -549,18 +555,25 @@ export function nicoHtml(input: YMD, videos: NicoVideo[]): string {
     ? `<button class="more-btn" data-action="show-more-nico">もっと見る（＋${restCount}本）</button>`
     : "";
   const restBlock = rest.length
-    ? `<div class="nico-block"><h3>${input.month}月${input.day}日に投稿されたミリオン動画${
+    ? `<div class="nico-block"><h3>${dayLabel(md)}に投稿されたミリオン動画${
         restCount ? `（${rest.length}本中${NICO_VISIBLE}本）` : `（${rest.length}本）`
       }</h3><ol class="nico-list" data-nico-list>${visible}</ol>${more}</div>`
     : "";
 
   const credit = `<p class="credit">出典: <a href="https://www.nicovideo.jp/" target="_blank" rel="noopener">ニコニコ動画</a> スナップショット検索API v2（100万再生以上・再生数の多い順。サービス開始は2006年12月）</p>`;
-  return section("📺", "同じ誕生日に投稿されたニコニコ動画", `${exactBlock}${restBlock}${credit}`, videos.length);
+  return section("📺", "同じ誕生日に投稿されたニコニコ動画", `${exactBlock}${restBlock}${credit}`, videos.length, opts.open);
 }
 
 /** 「もっと見る」で追加描画する残り（⭐を除いた一覧の先頭 NICO_VISIBLE 件より後ろ）。 */
 export function nicoMoreHtml(videos: NicoVideo[]): string {
   return videos.slice(NICO_VISIBLE).map(nicoRow).join("");
+}
+
+/* ---------- 日別ページへの導線（結果画面 → /day/MM-DD/） ---------- */
+export function dayPageLinkHtml(md: MD): string {
+  return `<p class="daylink"><a href="${esc(siteLink(`/day/${dayKeyOf(md)}/`))}">📖 ${dayLabel(
+    md,
+  )}生まれのページ（年なしで見られる・リンクで共有しやすい）→</a></p>`;
 }
 
 /* ---------- 共有 ---------- */
@@ -572,6 +585,11 @@ export function shareHtml(): string {
 }
 
 /* ---------- 共通 ---------- */
+/** セクションビルダ共通の任意引数。open＝初期展開（日別ページは主題のセクションを開いて出す）。 */
+interface SectionOpts {
+  open?: boolean;
+}
+
 // 折りたたみ（初期に開くのは open 指定の ✨プロフィール/🔮小ネタ だけ・他は閉）。
 // class="section" は more.ts の .closest(".section") が依存するので維持。
 // シェブロンは ::after ではなく明示 span——count の margin-left:auto と共存させるため（CSS の .count + .chev 参照）。
@@ -609,9 +627,44 @@ export function resultHtml(
     anniversaryHtml(input, day.anniversaries, day.kinenbi, day.events) +
     peopleHtml(allBirthdayPeople(day.people, day.animals)) +
     charactersHtml(day.characters) +
-    gamesHtml(input, day.games) +
-    nicoHtml(input, day.nicovideos) +
+    gamesHtml(input, day.games, { year: input.year }) +
+    nicoHtml(input, day.nicovideos, { year: input.year }) +
     sameYearHtml(input, day, cohort) +
+    dayPageLinkHtml(input) +
     shareHtml()
+  );
+}
+
+/* ---------- 日別ページ（/day/MM-DD/。年なし） ---------- */
+/**
+ * 日別ページの一覧（年なし＝⭐ の切り出しは無い）。HTML に出す先頭（dayPageHtml）と、
+ * 「もっと見る」で足す残り（app/day.ts）が**同じ配列**を使うための唯一の定義。
+ * 片方だけ変えると、HTML の分と後から足す分が重なったり抜けたりする。
+ */
+export function dayPageLists(
+  day: Pick<DayData, "people" | "animals" | "characters" | "games" | "nicovideos">,
+): { people: Person[]; characters: Character[]; games: Game[]; nico: NicoVideo[] } {
+  return {
+    people: allBirthdayPeople(day.people, day.animals),
+    characters: day.characters,
+    games: day.games,
+    nico: day.nicovideos,
+  };
+}
+
+/**
+ * 日別ページの本文。月日だけで決まるセクションを、トップの結果画面と同じビルダで描く
+ * （サーバ側＝ビルド時に呼ぶ。全データは esc() 済みなので set:html で流してよい）。
+ * 年に依存する ✨プロフィール/🔮小ネタ/🎂生まれた年/🎓同じ学年 は出さない。
+ * 並びは resultHtml の該当部分と同じ。ページの主題（有名人・キャラ・記念日）だけ初期展開。
+ */
+export function dayPageHtml(md: MD, day: DayData): string {
+  const lists = dayPageLists(day);
+  return (
+    anniversaryHtml(md, day.anniversaries, day.kinenbi, day.events, { open: true }) +
+    peopleHtml(lists.people, { open: true }) +
+    charactersHtml(lists.characters, { open: true }) +
+    gamesHtml(md, lists.games) +
+    nicoHtml(md, lists.nico)
   );
 }

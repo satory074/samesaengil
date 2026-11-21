@@ -1,5 +1,6 @@
 ---
 import Layout from "@/components/Layout.astro";
+import { siteLink } from "@/lib/url";
 
 const currentYear = new Date().getFullYear();
 const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => currentYear - i);
@@ -57,6 +58,8 @@ const defaultYear = 2000;
         <div class="help-body"></div>
       </div>
     </div>
+    <!-- 日別ページ（/day/MM-DD/）への入口。JS なしでも辿れる静的リンク（検索エンジン・AI クローラー用の導線も兼ねる）。 -->
+    <p class="daylink"><a href={siteLink("/day/")}>📖 誕生日カレンダー（年なしで月日から見る）→</a></p>
     <noscript>このサイトの利用には JavaScript が必要です。</noscript>
   </main>
 

@@ -1,0 +1,110 @@
+---
+// 日別ページ /day/MM-DD/（366 ページ）。月日だけで決まる情報を、JS なしで読める HTML として書き出す
+// （GPTBot / ClaudeBot などは JS を実行しないので、トップの ?d= の結果は見えない）。
+// 年に依存する情報（年齢・干支・生まれた年・同じ学年）はここには出さず、年フォームからトップ（?d=）へ送る。
+//
+// 本文は src/app/render.ts の文字列ビルダ（dayPageHtml）をそのまま呼ぶ＝トップの結果画面と実装を二重に持たない。
+// render.ts は全データを esc() 済みなので set:html でも安全。
+// OG 画像は全ページ共通の 1 枚（/og/default.png）。日別に作るとそれだけでビルドが ~2 分かかった（2026-07 に廃止した理由）。
+import fs from "node:fs";
+import path from "node:path";
+import Layout from "@/components/Layout.astro";
+import { allDays, dayKeyOf, dayLabel, neighborDays, parseDayKey } from "@/lib/days";
+import { mergeAnniversaries } from "@/lib/anniv";
+import { isLeap } from "@/app/share";
+import { SITE_NAME, webPageJsonLd } from "@/lib/seo";
+import { siteLink } from "@/lib/url";
+import type { DayData } from "@/lib/types";
+import { dayPageHtml, dayPageLists } from "@/app/render";
+
+export function getStaticPaths() {
+  return allDays().map((md) => ({ params: { md: dayKeyOf(md) } }));
+}
+
+const key = Astro.params.md!;
+const md = parseDayKey(key)!;
+
+// 38MB ぶんを import.meta.glob でビルドグラフに載せない（必要な 1 ファイルだけ読む）。
+const raw = JSON.parse(
+  fs.readFileSync(path.join(process.cwd(), "public", "data", "days", `${key}.json`), "utf8"),
+) as Partial<DayData>;
+const day: DayData = {
+  date: raw.date ?? key,
+  people: raw.people ?? [],
+  animals: raw.animals ?? [],
+  characters: raw.characters ?? [],
+  anniversaries: raw.anniversaries ?? [],
+  kinenbi: raw.kinenbi ?? [],
+  events: raw.events ?? [],
+  updatedAt: raw.updatedAt ?? "",
+  games: raw.games ?? [],
+  nicovideos: raw.nicovideos ?? [],
+};
+
+const label = dayLabel(md);
+const lists = dayPageLists(day);
+const annivCount = mergeAnniversaries(day.anniversaries, day.kinenbi).length;
+
+// タイトル・説明文はその日の実データから作る（日ごとに必ず違う文になる）。
+const heading = `${label}生まれの有名人・キャラクター・記念日`;
+const title = `${heading} | ${SITE_NAME}`;
+const topNames = lists.people.slice(0, 3).map((p) => p.name);
+const who = lists.people.length
+  ? `${label}生まれの有名人${lists.people.length}人（${topNames.join("、")}など）と、同じ誕生日のキャラクター${lists.characters.length}人`
+  : `${label}が誕生日のキャラクター${lists.characters.length}人`;
+const others = [
+  annivCount ? `${label}の記念日${annivCount}件` : "",
+  lists.games.length ? `この日に発売されたゲーム${lists.games.length}本` : "",
+  lists.nico.length ? `投稿されたミリオン動画${lists.nico.length}本` : "",
+].filter(Boolean);
+const description = `${who}。${others.length ? `ほかに${others.join("、")}の一覧。` : ""}`;
+
+// 年フォーム（→ トップの ?d=YYYY-MM-DD）。2/29 はうるう年しか実在しないので、うるう年だけ出す。
+const currentYear = new Date().getFullYear();
+const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => currentYear - i).filter(
+  (y) => !(md.month === 2 && md.day === 29) || isLeap(y),
+);
+const defaultYear = years.includes(2000) ? 2000 : years[0];
+
+const { prev, next } = neighborDays(md);
+const canonical = `/day/${key}/`;
+const jsonLd = webPageJsonLd({ name: heading, path: canonical, description });
+---
+
+<Layout title={title} description={description} canonical={canonical} jsonLd={jsonLd}>
+  <main id="day" data-key={key}>
+    <div class="result-head">
+      <h1 class="date-big"><em>{label}</em>生まれの<span class="date-sub">有名人・キャラクター・記念日</span></h1>
+    </div>
+    <p class="day-lead">{description}</p>
+
+    <form class="bday-form" id="year-form" autocomplete="off">
+      <label class="label" for="in-year">生まれた年を入れると、年齢・干支・星座・その年の出来事もわかります🎈</label>
+      <div class="row">
+        <div class="field">
+          <span>年</span>
+          <select id="in-year" aria-label="年">
+            {years.map((y) => <option value={y} selected={y === defaultYear}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+      <div class="go-row">
+        <button class="btn" type="submit">🎉 {label}生まれの結果を見る</button>
+      </div>
+    </form>
+
+    <Fragment set:html={dayPageHtml(md, day)} />
+
+    <nav class="day-nav" aria-label="ほかの日">
+      <a href={siteLink(`/day/${dayKeyOf(prev)}/`)} rel="prev">← {dayLabel(prev)}</a>
+      <a href={siteLink("/day/")}>誕生日カレンダー</a>
+      <a href={siteLink(`/day/${dayKeyOf(next)}/`)} rel="next">{dayLabel(next)} →</a>
+    </nav>
+  </main>
+
+  <script>
+    import { bootDay } from "../../app/day";
+    const root = document.getElementById("day")!;
+    bootDay(root, root.dataset.key!);
+  </script>
+</Layout>
