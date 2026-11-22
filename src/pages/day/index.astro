@@ -1,0 +1,47 @@
+---
+// 誕生日カレンダー /day/。366 の日別ページ（/day/MM-DD/）への入口。年に依存する表示（「今日」の強調など）は置かない。
+import Layout from "@/components/Layout.astro";
+import { allDays, dayKeyOf } from "@/lib/days";
+import { SITE_NAME, webPageJsonLd } from "@/lib/seo";
+import { siteLink } from "@/lib/url";
+
+const heading = "誕生日カレンダー";
+const title = `${heading}（1月1日〜12月31日） | ${SITE_NAME}`;
+const description =
+  "1月1日から12月31日まで、2月29日を含む366日の誕生日カレンダー。日付を選ぶと、その日に生まれた有名人・キャラクターと、その日の記念日・発売されたゲーム・ミリオン動画の一覧が見られます。";
+
+const months = Array.from({ length: 12 }, (_, i) => ({
+  month: i + 1,
+  days: allDays().filter((d) => d.month === i + 1),
+}));
+const jsonLd = webPageJsonLd({ type: "CollectionPage", name: heading, path: "/day/", description });
+---
+
+<Layout title={title} description={description} canonical="/day/" jsonLd={jsonLd}>
+  <main id="calendar">
+    <div class="result-head">
+      <h1 class="date-big"><em>誕生日</em>カレンダー</h1>
+    </div>
+    <p class="day-lead">
+      {description}
+      生年月日がわかるなら、<a href={siteLink("/")}>トップ</a>で調べると年齢・干支・生まれた年の出来事も出ます。
+    </p>
+
+    {
+      months.map(({ month, days }) => (
+        <section class="cal-month" aria-labelledby={`m${month}`}>
+          <h2 id={`m${month}`}>{month}月</h2>
+          <ol class="cal-days">
+            {days.map((d) => (
+              <li>
+                <a href={siteLink(`/day/${dayKeyOf(d)}/`)} aria-label={`${month}月${d.day}日`}>
+                  {d.day}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))
+    }
+  </main>
+</Layout>

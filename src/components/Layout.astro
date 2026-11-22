@@ -1,20 +1,27 @@
 ---
 import "../styles/globals.css";
 import { absUrl, siteLink } from "@/lib/url";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, jsonLdText, websiteJsonLd } from "@/lib/seo";
 
 interface Props {
   title?: string;
   description?: string;
-  /** 正規 URL（base 相対）。?d= のクエリ違いを別ページとしてインデックスさせないために使う。 */
+  /**
+   * 正規 URL（base 相対・ディレクトリは末尾 /）。og:url も同じ値。
+   * トップは "/" ＝ ?d= のクエリ違いを別ページとしてインデックスさせない。日別ページは自分自身。
+   */
   canonical?: string;
-  /** OG 画像（base 相対）。未指定なら汎用カード。 */
+  /** OG 画像（base 相対）。未指定なら汎用カード（日別ページも共通の 1 枚を使う）。 */
   image?: string;
+  /** JSON-LD（1 ページに 1 つ）。未指定ならトップ用の WebSite。 */
+  jsonLd?: Record<string, unknown>;
 }
 const {
-  title = "Same Saengil — 同じ誕生日、なにがある？",
-  description = "生年月日を入れるだけ。同じ誕生日の有名人・キャラ・記念日・星座まで、あなたの誕生日まるわかり。飲み会のネタにどうぞ。",
+  title = SITE_TITLE,
+  description = SITE_DESCRIPTION,
   canonical = "/",
   image,
+  jsonLd = websiteJsonLd(),
 } = Astro.props;
 
 // 既定は汎用カード（/og/default.png）。favicon.svg では X がカードを描かない。
@@ -38,6 +45,7 @@ const cfBeaconToken = import.meta.env.PUBLIC_CF_BEACON_TOKEN;
     <link rel="icon" type="image/svg+xml" href={siteLink("/favicon.svg")} />
 
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
@@ -47,6 +55,7 @@ const cfBeaconToken = import.meta.env.PUBLIC_CF_BEACON_TOKEN;
     <meta name="twitter:image" content={ogImage} />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <script is:inline type="application/ld+json" set:html={jsonLdText(jsonLd)} />
     {
       cfBeaconToken && (
         <script

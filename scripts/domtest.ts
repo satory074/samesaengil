@@ -704,4 +704,63 @@ function submit(dom: JSDOM, root: Element): void {
   console.log("[dom] ?d= 優先 OK");
 }
 
+// ---- 8) 日別ページ: ビルド時に書いた HTML の分 ＋「もっと見る」で足した分 ＝ 一覧の全件（順番どおり・重複なし） ----
+// HTML（dayPageHtml）と後から足す分（app/day.ts）が別々の切り方をすると、境界で人が重なったり抜けたりする。
+// 不変条件はその 1 つだけ。あわせて「押すまで JSON を読まない（1 回だけ読む）」も確かめる。
+{
+  const { dayPageHtml, dayPageLists } = await import("../src/app/render");
+  const { bootDay } = await import("../src/app/day");
+  const day: DayData = {
+    ...SAMPLE,
+    people: Array.from({ length: 35 }, (_, i) => ({
+      name: `人物${i}`, nameEn: "", year: 1990, desc: "俳優", photo: "", url: "", jaKnown: true, fame: 100 - i,
+    })),
+    // 人と動物は fame 順に混ぜて 1 つの一覧にする（境界をまたいで混ざるよう fame を真ん中に置く）
+    animals: [{ name: "名馬", nameEn: "", year: 2000, desc: "競走馬", photo: "", url: "", jaKnown: true, fame: 71 }],
+    characters: Array.from({ length: 45 }, (_, i) => ({ name: `キャラ${i}`, work: `作品${Math.floor(i / 7)}` })),
+    games: Array.from({ length: 35 }, (_, i) => ({ name: `ゲーム${i}`, year: 1990 + (i % 30), platform: "PS2" })),
+    nicovideos: Array.from({ length: 35 }, (_, i) => ({ id: `sm${i}`, title: `動画${i}`, year: 2009, man: 100 - i })),
+  };
+  const md = { month: 3, day: 15 };
+  const dom = new JSDOM(`<!DOCTYPE html><body><main id="day">${dayPageHtml(md, day)}</main></body>`, {
+    url: "https://example.com/samesaengil/day/03-15/",
+  });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  g.HTMLElement = dom.window.HTMLElement;
+  g.location = dom.window.location;
+  let fetched = 0;
+  g.fetch = async () => {
+    fetched++;
+    return { ok: true, json: async () => day } as unknown as Response;
+  };
+  const root = dom.window.document.getElementById("day")!;
+  bootDay(root as unknown as HTMLElement, "03-15");
+  assert(fetched === 0, "日別ページは「もっと見る」を押すまで JSON を読まない");
+
+  for (const btn of [...root.querySelectorAll('[data-action^="show-more-"]')]) {
+    btn.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  }
+  for (let i = 0; i < 6; i++) await tick();
+
+  const lists = dayPageLists(day);
+  const shown = (sel: string) => [...root.querySelectorAll(sel)].map((e) => e.textContent);
+  const cases: [string, string, string[]][] = [
+    ["有名人", "[data-people-grid] .pcard .name", lists.people.map((p) => p.name)],
+    ["キャラ", "[data-char-list] .chip .cname", lists.characters.map((c) => c.name)],
+    ["ゲーム", "[data-games-list] .g-name", lists.games.map((x) => x.name)],
+    ["動画", "[data-nico-list] .n-title", lists.nico.map((v) => v.title)],
+  ];
+  for (const [label, sel, want] of cases) {
+    const got = shown(sel);
+    assert(
+      JSON.stringify(got) === JSON.stringify(want),
+      `日別ページの${label}: HTML＋もっと見る＝全件・順番どおり・重複なし（表示 ${got.length} / 全件 ${want.length}）`,
+    );
+  }
+  assert(fetched === 1, `4 つのボタンで JSON は 1 回だけ読む（実際: ${fetched}回）`);
+  console.log("[dom] 日別ページ: HTML＋もっと見る＝全件 OK");
+}
+
 console.log("\n✅ DOM smoke test passed");

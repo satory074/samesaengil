@@ -101,6 +101,11 @@ jobs:
           GH_USER: ${{ github.repository_owner }}
           PUBLIC_CF_BEACON_TOKEN: ${{ vars.PUBLIC_CF_BEACON_TOKEN }}
 
+      # 検索エンジン・AI クローラー向けの不変条件（title/説明文の重複なし・canonical・sitemap・JSON-LD・
+      # サイト内リンク・バックリンクバー）。破ったらここで止まり、deploy しない。
+      - name: SEO check
+        run: node scripts/seo-check.mjs dist "https://${{ github.repository_owner }}.github.io/samesaengil/" --require-backlink
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
