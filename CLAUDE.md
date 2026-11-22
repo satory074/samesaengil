@@ -144,6 +144,7 @@ npx tsx scripts/importNicovideos.ts 2013       # 指定年だけ（デバッグ�
 
 ## 重要な決定・ハマりどころ
 
+- **同じ見出しが 2 回あるページは先勝ち**（`scripts/sources/jawikiDay.ts` の `fetchSectionIndex`）: 日本語版Wikipedia「8月8日」にはトップレベルの `== 誕生日 ==` が 2 つあり、2 つ目は食品関係の記念日の一覧に誤って付いた見出し。後勝ちだった 2026-10-05〜11-22 は 8/8 の有名人が 0 人になっていた（年 JSON の「同じ学年」からも 8/8 生まれが抜けていた）。直したあと `npx tsx scripts/aggregate.ts 08-08` → `YEARS_PEOPLE_ONLY=1 npm run aggregate:years` で反映済み
 - **WDQS（SPARQL）・Wikidata は使わない**: 「指定の月日生まれ」を `FILTER(MONTH/DAY)` で問う SPARQL は公開 WDQS の 60 秒制限でタイムアウトする。並び替え指標も Wikidata sitelink から**日本語版の閲覧数**に移行したため、現在は **日本語版Wikipedia REST（parse/query）＋ Wikimedia pageviews API のみ**で構成（Wikidata は不使用）。
 - **`src/app/*` と `src/lib/*` は相対 import**（`@/` エイリアス禁止）: これらは `scripts/*test.ts` から **tsx** で読み込まれ、tsx はパスエイリアスを解決しないため。`.astro` 内は `@/` で良い（Vite が解決）。`src/lib/url.ts` は `import.meta.env?.BASE_URL ?? "/"` と optional chaining（tsx 下で `import.meta.env` が未定義でも import 時に throw しない）。
 - **domtest で `globalThis.navigator` に代入しない**: Node 21+ では読み取り専用 getter になり throw する（CI=Node22 で発覚、ローカル Node20 では通る）。`main.ts` は `navigator.clipboard?.` を optional chaining で参照するだけ。

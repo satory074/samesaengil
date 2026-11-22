@@ -40,7 +40,9 @@ async function fetchSectionIndex(month: number, day: number): Promise<Map<string
   const secData = await fetchJson<SectionsResponse>(`${API}?${secParams.toString()}`);
   const map = new Map<string, string>();
   for (const s of secData.parse?.sections ?? []) {
-    if (s.line && s.index) map.set(s.line, s.index);
+    // 同じ見出しが 2 回あるページがある (8月8日: 2 つ目の「誕生日」は中身が食品の記念日で、
+    // 見出しの付け間違い)。後勝ちにすると本物の誕生日節を捨てて有名人が 0 人になったので、先勝ちにする
+    if (s.line && s.index && !map.has(s.line)) map.set(s.line, s.index);
   }
   return map;
 }
